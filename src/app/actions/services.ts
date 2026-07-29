@@ -146,6 +146,32 @@ export async function deleteService(
   }
 }
 
+// ── updateCategory ─────────────────────────────────────────────────────────
+
+export async function updateCategory(
+  id: string,
+  data: z.infer<typeof updateCategorySchema>
+): Promise<{ success: true } | { success: false; error: string }> {
+  const parsed = updateCategorySchema.safeParse(data);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  try {
+    await prisma.serviceCategory.update({
+      where: { id },
+      data: {
+        name: parsed.data.name,
+        icon: parsed.data.icon ?? null,
+      },
+    });
+    return { success: true };
+  } catch (err) {
+    console.error("[updateCategory]", err);
+    return { success: false, error: "Failed to update category" };
+  }
+}
+
 // ── deleteCategory ─────────────────────────────────────────────────────────
 
 export async function deleteCategory(

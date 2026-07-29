@@ -14,6 +14,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import Link from "next/link";
+import { ShiftEditor } from "@/components/staff/shift-editor";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +52,7 @@ export default async function StaffDetailPage({ params }: PageProps<"/dashboard/
     prisma.staff.findUnique({
       where: { id },
       include: {
-        shifts: true,
+        Shift: true,
         StaffService: { include: { Service: { include: { ServiceCategory: true } } } },
         Appointment: {
           where: { date: { gte: thirtyDaysAgoStr } },
@@ -306,7 +307,7 @@ export default async function StaffDetailPage({ params }: PageProps<"/dashboard/
             <CardContent>
               <div className="grid grid-cols-7 gap-2">
                 {DAYS.map((day, i) => {
-                  const shift = staff.shifts.find((s) => s.dayOfWeek === i);
+                  const shift = staff.Shift.find((s) => s.dayOfWeek === i);
                   const dayAppts = weekAppointmentsByDay[i] ?? [];
                   // Compute this day's date string for "today" highlight
                   const dayDate = new Date(startOfWeek);
