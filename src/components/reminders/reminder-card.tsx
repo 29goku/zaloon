@@ -1,11 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronUp, Send, Mail, MessageSquare, Phone } from "lucide-react";
+import { ChevronDown, ChevronUp, Send, Mail, MessageSquare, Phone, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
-import { sendReminder } from "@/app/actions/reminders";
+import { sendReminder, cancelReminder } from "@/app/actions/reminders";
 import { cn } from "@/lib/utils";
 import type { ReminderWithAppointment } from "@/app/actions/reminders";
 
@@ -49,6 +49,8 @@ function statusClass(status: string): string {
       return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-transparent";
     case "FAILED":
       return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-transparent";
+    case "CANCELLED":
+      return "bg-muted text-muted-foreground border-transparent";
     default:
       // PENDING
       return "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 border-transparent";
@@ -64,12 +66,13 @@ interface ReminderCardProps {
 export function ReminderCard({ reminder }: ReminderCardProps) {
   const [expanded, setExpanded] = React.useState(false);
   const [sending, setSending] = React.useState(false);
+  const [cancelling, setCancelling] = React.useState(false);
   const [localStatus, setLocalStatus] = React.useState(reminder.status);
   const [localSentAt, setLocalSentAt] = React.useState<Date | null>(reminder.sentAt);
 
-  const clientName = reminder.Appointment.Client?.name ?? "Walk-in";
-  const apptDate = reminder.Appointment.date;
-  const apptTime = reminder.Appointment.startTime;
+  const clientName = reminder.Appointment?.Client?.name ?? "Walk-in";
+  const apptDate = reminder.Appointment?.date;
+  const apptTime = reminder.Appointment?.startTime;
 
   async function handleSendNow() {
     setSending(true);
@@ -90,6 +93,23 @@ export function ReminderCard({ reminder }: ReminderCardProps) {
     }
   }
 
+  async function handleCancel() {
+    setCancelling(true);
+    try {
+      const result = await cancelReminder(reminder.id);
+      if (result.success) {
+        setLocalStatus("CANCELLED");
+        toast.success("Reminder cancelled");
+      } else {
+        toast.error("Failed to cancel", result.error);
+      }
+    } catch {
+      toast.error("Unexpected error", "Could not cancel the reminder.");
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   return (
     <div className="rounded-xl border border-border bg-card transition-colors hover:bg-muted/20">
       {/* Card header row */}
@@ -98,9 +118,11 @@ export function ReminderCard({ reminder }: ReminderCardProps) {
         <div className="flex-1 min-w-0 space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-sm">{clientName}</span>
-            <span className="text-xs text-muted-foreground">
-              {apptDate} at {apptTime}
-            </span>
+            {apptDate && apptTime && (
+              <span className="text-xs text-muted-foreground">
+                {apptDate} at {apptTime}
+              </span>
+            )}
           </div>
           <p
             className={cn(
@@ -137,16 +159,29 @@ export function ReminderCard({ reminder }: ReminderCardProps) {
 
           <div className="flex items-center gap-1.5">
             {localStatus === "PENDING" && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleSendNow}
-                disabled={sending}
-                className="gap-1"
-              >
-                <Send className="size-3" />
-                {sending ? "Sending…" : "Send Now"}
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleSendNow}
+                  disabled={sending || cancelling}
+                  className="gap-1"
+                >
+                  <Send className="size-3" />
+                  {sending ? "Sending…" : "Send Now"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleCancel}
+                  disabled={sending || cancelling}
+                  className="gap-1 text-muted-foreground hover:text-destructive"
+                  aria-label="Cancel reminder"
+                >
+                  <X className="size-3.5" />
+                  {cancelling ? "Cancelling…" : "Cancel"}
+                </Button>
+              </>
             )}
             <Button
               size="sm"

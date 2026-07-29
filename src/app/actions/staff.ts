@@ -143,7 +143,7 @@ export async function setStaffServices(
 
     if (serviceIds.length > 0) {
       await prisma.staffService.createMany({
-        data: serviceIds.map((serviceId) => ({ id: randomUUID(), staffId, serviceId })),
+        data: serviceIds.map((serviceId) => ({ staffId, serviceId })),
       });
     }
 
@@ -151,5 +151,57 @@ export async function setStaffServices(
   } catch (err) {
     console.error("[setStaffServices]", err);
     return { success: false, error: "Failed to update services" };
+  }
+}
+
+// ─── addStaffService ───────────────────────────────────────────────────────────
+
+export async function addStaffService(
+  staffId: string,
+  serviceId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    await prisma.staffService.create({
+      data: { staffId, serviceId },
+    });
+    return { success: true };
+  } catch (err: unknown) {
+    // Unique constraint violation — already assigned, treat as success
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code: string }).code === "P2002"
+    ) {
+      return { success: true };
+    }
+    console.error("[addStaffService]", err);
+    return { success: false, error: "Failed to add service" };
+  }
+}
+
+// ─── removeStaffService ────────────────────────────────────────────────────────
+
+export async function removeStaffService(
+  staffId: string,
+  serviceId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    await prisma.staffService.delete({
+      where: { staffId_serviceId: { staffId, serviceId } },
+    });
+    return { success: true };
+  } catch (err: unknown) {
+    // Record not found — already removed, treat as success
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code: string }).code === "P2025"
+    ) {
+      return { success: true };
+    }
+    console.error("[removeStaffService]", err);
+    return { success: false, error: "Failed to remove service" };
   }
 }

@@ -52,7 +52,10 @@ export type ClientForSheet = {
   notes: string | null;
   createdAt: Date;
   loyaltyPoints?: number;
-  _count: { appointments: number };
+  isVip?: boolean;
+  doNotContact?: boolean;
+  tags?: string | null;
+  _count: { Appointment: number };
   ledgerBalance: number;
   /** Total amount spent across all appointments (optional — not shown in sheet) */
   totalSpent?: number;
@@ -185,7 +188,7 @@ export function ClientDetailSheet({
         <div className="px-6 py-4 border-b border-border flex gap-6">
           <div>
             <p className="text-2xl font-bold text-foreground">
-              {client._count.appointments}
+              {client._count.Appointment}
             </p>
             <p className="text-xs text-muted-foreground">visits</p>
           </div>

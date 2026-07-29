@@ -5,6 +5,7 @@ import { ClientsGrid } from "@/components/clients/clients-grid";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ClientFilters } from "@/components/clients/client-filters";
 import { ExportClientsButton } from "@/components/clients/export-clients-button";
+import { ImportClientsDialog } from "@/components/clients/import-clients-dialog";
 
 export const dynamic = "force-dynamic";
 
@@ -47,13 +48,13 @@ export default async function ClientsPage({
         select: { totalAmount: true, date: true },
         orderBy: { date: "desc" },
       },
-      ledger: { select: { type: true, amount: true } },
+      LedgerEntry: { select: { type: true, amount: true } },
     },
   });
 
   // Compute derived fields and apply post-query filters
   let clients = rawClients.map((c) => {
-    const ledgerBalance = c.ledger.reduce((sum, entry) => {
+    const ledgerBalance = c.LedgerEntry.reduce((sum, entry) => {
       return entry.type === "CREDIT"
         ? sum + entry.amount
         : sum - entry.amount;
@@ -73,7 +74,10 @@ export default async function ClientsPage({
       notes: c.notes,
       createdAt: c.createdAt,
       loyaltyPoints: c.loyaltyPoints,
-      _count: { Appointment: c._count.Appointment },
+      isVip: c.isVip,
+      doNotContact: c.doNotContact,
+      tags: c.tags,
+      _count: { Appointment: c._count.Appointment ?? 0 },
       ledgerBalance,
       totalSpent,
       lastVisit,
@@ -113,7 +117,7 @@ export default async function ClientsPage({
   // sortBy === "name" is handled by Prisma orderBy above
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Clients</h1>
@@ -127,6 +131,7 @@ export default async function ClientsPage({
         <div className="flex items-center gap-2 flex-wrap">
           <ClientFilters />
           <ExportClientsButton />
+          <ImportClientsDialog />
           <AddClientDialog />
         </div>
       </div>

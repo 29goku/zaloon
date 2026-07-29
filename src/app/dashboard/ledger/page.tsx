@@ -52,17 +52,17 @@ export default async function LedgerPage() {
     .sort((a, b) => a.name.localeCompare(b.name));
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-8">
+    <div className="p-4 md:p-8">
+      <div className="flex items-center justify-between mb-6 md:mb-8 flex-wrap gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Ledger</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-foreground">Ledger</h1>
           <p className="text-muted-foreground mt-1">Client tab &amp; balance tracking</p>
         </div>
         <AddLedgerDialog clients={clients} />
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 md:mb-8">
         <Card className="bg-card border-border">
           <CardContent className="p-5">
             <div className="flex items-center justify-between mb-2">

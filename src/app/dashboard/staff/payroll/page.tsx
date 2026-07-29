@@ -1,31 +1,103 @@
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
-import { ArrowLeft, Download } from "lucide-react";
+import { ArrowLeft, Download, DollarSign, TrendingUp, BarChart3, Ban } from "lucide-react";
+import { Suspense } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { PayrollDateControls } from "./payroll-date-controls";
 
 export const dynamic = "force-dynamic";
 
-function getDefaultRange(): { from: string; to: string } {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
-  return {
-    from: `${year}-${month}-01`,
-    to: `${year}-${month}-${String(lastDay).padStart(2, "0")}`,
-  };
+// ── date helpers ──────────────────────────────────────────────────────────────
+
+function toDateString(d: Date): string {
+  return d.toISOString().split("T")[0];
 }
 
+function startOfWeek(d: Date): Date {
+  const day = d.getDay();
+  const copy = new Date(d);
+  copy.setDate(d.getDate() - day);
+  return copy;
+}
+
+function startOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+function endOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0);
+}
+
+function presetRange(preset: string): { from: string; to: string } {
+  const today = new Date();
+  switch (preset) {
+    case "this-week": {
+      const start = startOfWeek(today);
+      return { from: toDateString(start), to: toDateString(today) };
+    }
+    case "this-month": {
+      const start = startOfMonth(today);
+      return { from: toDateString(start), to: toDateString(today) };
+    }
+    case "last-month": {
+      const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const start = startOfMonth(lastMonth);
+      const end = endOfMonth(lastMonth);
+      return { from: toDateString(start), to: toDateString(end) };
+    }
+    default: {
+      const start = startOfMonth(today);
+      return { from: toDateString(start), to: toDateString(today) };
+    }
+  }
+}
+
+const PRESETS = [
+  { id: "this-week", label: "This Week" },
+  { id: "this-month", label: "This Month" },
+  { id: "last-month", label: "Last Month" },
+] as const;
+
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+// ── page ──────────────────────────────────────────────────────────────────────
+
 interface PayrollPageProps {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; preset?: string }>;
 }
 
 export default async function PayrollPage({ searchParams }: PayrollPageProps) {
   const sp = await searchParams;
-  const defaults = getDefaultRange();
-  const from = sp.from ?? defaults.from;
-  const to = sp.to ?? defaults.to;
 
-  // Fetch all staff with their appointments in the date range
+  const activePreset =
+    typeof sp.preset === "string" && PRESETS.some((p) => p.id === sp.preset)
+      ? sp.preset
+      : null;
+
+  let from: string;
+  let to: string;
+
+  if (activePreset) {
+    const range = presetRange(activePreset);
+    from = range.from;
+    to = range.to;
+  } else if (typeof sp.from === "string" && typeof sp.to === "string") {
+    from = sp.from <= sp.to ? sp.from : sp.to;
+    to = sp.from <= sp.to ? sp.to : sp.from;
+  } else {
+    const defaults = presetRange("this-month");
+    from = defaults.from;
+    to = defaults.to;
+  }
+
+  // Fetch all staff with completed appointments in date range
   const staff = await prisma.staff.findMany({
     orderBy: { name: "asc" },
     include: {
@@ -43,20 +115,18 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
     },
   });
 
-  // Compute payroll rows
+  // Compute per-staff payroll rows
   const rows = staff.map((member) => {
     const appointmentCount = member.Appointment.length;
     const revenue = member.Appointment.reduce((sum: number, appt) => {
       const inv = appt.Invoice;
       if (inv && inv.status === "PAID") return sum + inv.total;
-      // fall back to totalAmount if no invoice
       return sum + appt.totalAmount;
     }, 0);
     const commissionEarned = revenue * (member.commissionPct / 100);
     return {
       id: member.id,
       name: member.name,
-      phone: member.phone ?? "",
       commissionPct: member.commissionPct,
       appointmentCount,
       revenue,
@@ -64,16 +134,18 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
     };
   });
 
+  // Summary totals
   const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
   const totalPayout = rows.reduce((s, r) => s + r.commissionEarned, 0);
-  const totalAppts = rows.reduce((s, r) => s + r.appointmentCount, 0);
+  const overallCommissionRate =
+    totalRevenue > 0 ? (totalPayout / totalRevenue) * 100 : 0;
 
   const exportUrl = `/api/staff/payroll/export?from=${from}&to=${to}`;
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-8">
         <div className="flex items-center gap-4">
           <Link
             href="/dashboard/staff"
@@ -85,69 +157,143 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
           <div>
             <h1 className="text-3xl font-bold text-foreground">Payroll</h1>
             <p className="text-muted-foreground mt-1">
-              Commission summary for {from} &mdash; {to}
+              Commission summary · {from} &mdash; {to}
             </p>
           </div>
         </div>
+
         <a
           href={exportUrl}
-          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors"
+          className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors self-start"
         >
           <Download className="w-4 h-4" />
-          Export Payroll
+          Export CSV
         </a>
       </div>
 
-      {/* Date range filter */}
-      <form method="GET" className="flex items-end gap-3 mb-8 flex-wrap">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="from" className="text-xs font-medium text-muted-foreground">
-            From
-          </label>
-          <input
-            id="from"
-            name="from"
-            type="date"
-            defaultValue={from}
-            className="h-9 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-          />
+      {/* Date range controls */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-8">
+        {/* Preset buttons */}
+        <div className="flex items-center gap-1 bg-secondary/60 rounded-lg p-1">
+          {PRESETS.map((preset) => {
+            const isActive =
+              activePreset === preset.id ||
+              (!activePreset && !sp.from && preset.id === "this-month");
+            return (
+              <Link
+                key={preset.id}
+                href={`?preset=${preset.id}`}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  isActive
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {preset.label}
+              </Link>
+            );
+          })}
+          <Link
+            href={`?from=${from}&to=${to}`}
+            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              !activePreset && sp.from
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Custom
+          </Link>
         </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="to" className="text-xs font-medium text-muted-foreground">
-            To
-          </label>
-          <input
-            id="to"
-            name="to"
-            type="date"
-            defaultValue={to}
-            className="h-9 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-          />
-        </div>
-        <button
-          type="submit"
-          className="h-9 px-4 rounded-lg bg-secondary text-secondary-foreground text-sm font-semibold hover:bg-secondary/80 transition-colors"
-        >
-          Apply
-        </button>
-      </form>
 
-      {/* Table */}
-      <div className="rounded-xl border border-border overflow-hidden">
-        <table className="w-full text-sm">
+        {/* Custom date inputs — client component */}
+        <Suspense fallback={null}>
+          <PayrollDateControls from={from} to={to} />
+        </Suspense>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+        <Card className="bg-card border-border">
+          <CardContent className="p-5">
+            <div className="flex items-start justify-between mb-3">
+              <p className="text-sm text-muted-foreground">Total Payroll Owed</p>
+              <div className="bg-primary/10 p-2 rounded-lg flex-shrink-0">
+                <DollarSign className="w-4 h-4 text-primary" />
+              </div>
+            </div>
+            <p className="text-2xl font-bold text-primary tabular-nums">
+              ${totalPayout.toFixed(2)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Total commissions due this period
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card border-border">
+          <CardContent className="p-5">
+            <div className="flex items-start justify-between mb-3">
+              <p className="text-sm text-muted-foreground">Total Revenue</p>
+              <div className="bg-emerald-500/10 p-2 rounded-lg flex-shrink-0">
+                <TrendingUp className="w-4 h-4 text-emerald-500" />
+              </div>
+            </div>
+            <p className="text-2xl font-bold text-foreground tabular-nums">
+              ${totalRevenue.toFixed(2)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              From completed appointments
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card border-border">
+          <CardContent className="p-5">
+            <div className="flex items-start justify-between mb-3">
+              <p className="text-sm text-muted-foreground">Overall Commission Rate</p>
+              <div className="bg-[#F48E16]/10 p-2 rounded-lg flex-shrink-0">
+                <BarChart3 className="w-4 h-4 text-[#F48E16]" />
+              </div>
+            </div>
+            <p className="text-2xl font-bold text-foreground tabular-nums">
+              {overallCommissionRate.toFixed(1)}%
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Weighted across all staff
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Staff payroll table */}
+      <div className="rounded-xl border border-border overflow-x-auto">
+        <table className="w-full text-sm min-w-[500px]">
           <thead>
             <tr className="bg-muted/40 border-b border-border">
-              <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Staff Name</th>
-              <th className="text-right px-4 py-3 font-semibold text-muted-foreground">Appointments</th>
-              <th className="text-right px-4 py-3 font-semibold text-muted-foreground">Revenue</th>
-              <th className="text-right px-4 py-3 font-semibold text-muted-foreground">Commission %</th>
-              <th className="text-right px-4 py-3 font-semibold text-muted-foreground">Commission Earned</th>
+              <th className="text-left px-4 py-3 font-semibold text-muted-foreground">
+                Staff Member
+              </th>
+              <th className="text-right px-4 py-3 font-semibold text-muted-foreground">
+                Appts
+              </th>
+              <th className="text-right px-4 py-3 font-semibold text-muted-foreground">
+                Revenue
+              </th>
+              <th className="text-right px-4 py-3 font-semibold text-muted-foreground">
+                Commission %
+              </th>
+              <th className="text-right px-4 py-3 font-semibold text-muted-foreground">
+                Commission Earned
+              </th>
+              <th className="text-right px-4 py-3 font-semibold text-muted-foreground">
+                Status
+              </th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={5} className="text-center py-16 text-muted-foreground">
+                <td colSpan={6} className="text-center py-16 text-muted-foreground">
                   No staff found.
                 </td>
               </tr>
@@ -156,10 +302,18 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
                 <tr
                   key={row.id}
                   className={`border-b border-border last:border-0 hover:bg-muted/30 transition-colors ${
-                    idx % 2 === 0 ? "" : "bg-muted/10"
+                    idx % 2 !== 0 ? "bg-muted/10" : ""
                   }`}
                 >
-                  <td className="px-4 py-3 font-medium text-foreground">{row.name}</td>
+                  {/* Name + avatar */}
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-primary text-sm font-bold flex-shrink-0">
+                        {getInitials(row.name)}
+                      </div>
+                      <span className="font-medium text-foreground">{row.name}</span>
+                    </div>
+                  </td>
                   <td className="px-4 py-3 text-right text-foreground tabular-nums">
                     {row.appointmentCount}
                   </td>
@@ -172,6 +326,16 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
                   <td className="px-4 py-3 text-right font-semibold text-primary tabular-nums">
                     ${row.commissionEarned.toFixed(2)}
                   </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      disabled
+                      title="Payment tracking coming soon"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-muted-foreground border border-border cursor-not-allowed opacity-60"
+                    >
+                      <Ban className="w-3 h-3" />
+                      Mark Paid
+                    </button>
+                  </td>
                 </tr>
               ))
             )}
@@ -180,7 +344,7 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
             <tr className="bg-muted/40 border-t border-border">
               <td className="px-4 py-3 font-bold text-foreground">Total</td>
               <td className="px-4 py-3 text-right font-bold text-foreground tabular-nums">
-                {totalAppts}
+                {rows.reduce((s, r) => s + r.appointmentCount, 0)}
               </td>
               <td className="px-4 py-3 text-right font-bold text-foreground tabular-nums">
                 ${totalRevenue.toFixed(2)}
@@ -189,23 +353,10 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
               <td className="px-4 py-3 text-right font-bold text-primary tabular-nums">
                 ${totalPayout.toFixed(2)}
               </td>
+              <td className="px-4 py-3" />
             </tr>
           </tfoot>
         </table>
-      </div>
-
-      {/* Summary card */}
-      <div className="mt-6 p-5 rounded-xl border border-border bg-card flex items-center justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground">Total Payout</p>
-          <p className="text-3xl font-bold text-primary mt-1">${totalPayout.toFixed(2)}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-sm text-muted-foreground">Period</p>
-          <p className="text-sm font-semibold text-foreground mt-1">
-            {from} &mdash; {to}
-          </p>
-        </div>
       </div>
     </div>
   );

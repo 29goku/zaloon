@@ -9,7 +9,9 @@ import {
   Scissors,
   UserCircle,
   BarChart3,
+  BarChart2,
   Settings,
+  Settings2,
   Zap,
   BookOpen,
   Receipt,
@@ -17,33 +19,85 @@ import {
   Bell,
   ClipboardList,
   Star,
+  DollarSign,
+  CalendarOff,
+  Tag,
+  Package,
+  Package2,
+  CreditCard,
+  Gift,
+  Code2,
+  Megaphone,
+  Award,
+  Building2,
+  Palette,
+  TrendingUp,
+  Mail,
+  MessageSquare,
+  Clock,
+  Percent,
+  Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { LocationSwitcher } from "@/components/sidebar/location-switcher";
+import type { SalonLocation } from "@/components/sidebar/location-switcher";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/appointments", label: "Appointments", icon: CalendarDays },
+  { href: "/dashboard/queue", label: "Queue", icon: Users },
   { href: "/dashboard/staff", label: "Staff", icon: Users },
+  { href: "/dashboard/staff/schedule", label: "Schedule", icon: CalendarDays, indent: true },
+  { href: "/dashboard/staff/availability", label: "Availability", icon: CalendarOff, indent: true },
+  { href: "/dashboard/staff/performance", label: "Performance", icon: BarChart2, indent: true },
   { href: "/dashboard/staff/payroll", label: "Payroll", icon: Banknote, indent: true },
+  { href: "/dashboard/staff/timeclock", label: "Time Clock", icon: Clock, indent: true },
+  { href: "/dashboard/finance", label: "Finance", icon: TrendingUp },
+  { href: "/dashboard/finance/tips", label: "Tips", icon: DollarSign, indent: true },
+  { href: "/dashboard/finance/tax", label: "Tax Report", icon: Receipt, indent: true },
+  { href: "/dashboard/finance/payroll", label: "Payroll", icon: Wallet, indent: true },
+  { href: "/dashboard/payroll", label: "Payroll", icon: DollarSign },
   { href: "/dashboard/services", label: "Services", icon: Scissors },
+  { href: "/dashboard/services/packages", label: "Packages", icon: Package2, indent: true },
   { href: "/dashboard/clients", label: "Clients", icon: UserCircle },
+  { href: "/dashboard/clients/retention", label: "Retention", icon: TrendingUp, indent: true },
   { href: "/dashboard/ledger", label: "Ledger", icon: BookOpen },
   { href: "/dashboard/invoices", label: "Invoices", icon: Receipt },
   { href: "/dashboard/quick-pay", label: "Quick Pay", icon: Zap },
+  { href: "/dashboard/expenses", label: "Expenses", icon: Receipt },
+  { href: "/dashboard/coupons", label: "Coupons", icon: Tag },
+  { href: "/dashboard/reviews", label: "Reviews", icon: Star },
+  { href: "/dashboard/inventory", label: "Inventory", icon: Package },
   { href: "/dashboard/reports", label: "Reports", icon: BarChart3 },
+  { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
   { href: "/dashboard/reminders", label: "Reminders", icon: Bell },
   { href: "/dashboard/waitlist", label: "Waitlist", icon: ClipboardList },
+  { href: "/dashboard/loyalty", label: "Loyalty Program", icon: Award },
+  { href: "/dashboard/memberships", label: "Memberships", icon: CreditCard },
+  { href: "/dashboard/gift-cards", label: "Gift Cards", icon: Gift },
+  { href: "/dashboard/campaigns", label: "Campaigns", icon: Megaphone },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
+  { href: "/dashboard/settings/notifications", label: "Notifications", icon: Bell, indent: true },
+  { href: "/dashboard/settings/loyalty", label: "Loyalty Program", icon: Star, indent: true },
+  { href: "/dashboard/settings/booking-widget", label: "Booking Widget", icon: Code2, indent: true },
+  { href: "/dashboard/settings/branches", label: "Branches", icon: Building2, indent: true },
+  { href: "/dashboard/settings/appearance", label: "Appearance", icon: Palette, indent: true },
+  { href: "/dashboard/settings/automations", label: "Automations", icon: Zap, indent: true },
+  { href: "/dashboard/settings/booking", label: "Booking Rules", icon: Settings2, indent: true },
+  { href: "/dashboard/settings/templates", label: "Message Templates", icon: MessageSquare, indent: true },
+  { href: "/dashboard/settings/digest", label: "Digest Reports", icon: Mail, indent: true },
+  { href: "/dashboard/settings/tax", label: "Tax Settings", icon: Percent, indent: true },
 ];
 
 interface SidebarNavProps {
   onClose?: () => void;
   salonName?: string;
+  salonLocations?: SalonLocation[];
   pendingReminderCount?: number;
 }
 
-export function SidebarNav({ onClose, salonName = "My Salon", pendingReminderCount = 0 }: SidebarNavProps) {
+export function SidebarNav({ onClose, salonName = "My Salon", salonLocations = [], pendingReminderCount = 0 }: SidebarNavProps) {
   const pathname = usePathname();
 
   return (
@@ -74,6 +128,9 @@ export function SidebarNav({ onClose, salonName = "My Salon", pendingReminderCou
         </span>
       </div>
 
+      {/* Location switcher */}
+      <LocationSwitcher locations={salonLocations} />
+
       {/* Nav */}
       <nav className="flex-1 py-5 px-4 space-y-1 overflow-y-auto">
         {navItems.map(({ href, label, icon: Icon, indent }) => {
@@ -89,7 +146,7 @@ export function SidebarNav({ onClose, salonName = "My Salon", pendingReminderCou
           const isReminders = href === "/dashboard/reminders";
           return (
             <Link
-              key={href}
+              key={`${href}-${label}`}
               href={href}
               onClick={onClose}
               className={cn(

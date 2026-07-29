@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Scissors } from "lucide-react";
+import { ExportButton } from "./export-button";
 
 export interface TopServiceRow {
   name: string;
@@ -29,10 +30,24 @@ export function TopServicesTable({ data, currency }: TopServicesTableProps) {
   return (
     <Card className="bg-card border-border">
       <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
-          <Scissors className="w-4 h-4 text-[#F48E16]" />
-          Top Services
-        </CardTitle>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Scissors className="w-4 h-4 text-[#F48E16]" />
+            Top Services
+          </CardTitle>
+          <ExportButton
+            label="top-services"
+            getData={() =>
+              data.map((r, i) => ({
+                Rank: i + 1,
+                Service: r.name,
+                Bookings: r.count,
+                "Avg Price": r.avgPrice,
+                Revenue: r.revenue,
+              }))
+            }
+          />
+        </div>
       </CardHeader>
       <CardContent className="p-0">
         {data.length === 0 ? (

@@ -1,11 +1,17 @@
+import type React from "react";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CalendarDays, List, LayoutGrid } from "lucide-react";
-import { NewAppointmentDialog } from "@/components/appointments/new-appointment-dialog";
+import { CalendarDays, List, LayoutGrid, History, CheckCircle2, UserX, TrendingUp } from "lucide-react";
+import { NewAppointmentModal } from "@/components/appointments/new-appointment-modal";
 import { AppointmentCalendar } from "@/components/appointments/appointment-calendar";
 import { getAppointmentsForWeek } from "@/app/actions/appointments";
 import { DateNav } from "@/components/appointments/date-nav";
 import { AppointmentsListWithSheet } from "@/components/appointments/appointments-list-with-sheet";
+import {
+  AppointmentHistoryTable,
+  type HistoryAppointment,
+  type HistoryStats,
+} from "@/components/appointments/appointment-history-table";
 import Link from "next/link";
 import { Suspense } from "react";
 
@@ -26,12 +32,97 @@ interface PageProps {
 
 export default async function AppointmentsPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const view = params.view === "calendar" ? "calendar" : "list";
 
   const today = new Date().toISOString().split("T")[0];
 
-  // ── Calendar view ─────────────────────────────────────────────────────────
-  if (view === "calendar") {
+  // Determine active view
+  const rawView = params.view;
+  const isHistory = rawView === "history";
+  const isCalendar = rawView === "calendar";
+  const view = isCalendar ? "calendar" : isHistory ? "history" : "list";
+
+  // ── History view ───────────────────────────────────────────────────────────
+  if (isHistory) {
+    const [historyRows, salon, staffList] = await Promise.all([
+      prisma.appointment.findMany({
+        where: { status: { in: ["COMPLETED", "CANCELLED", "NO_SHOW"] } },
+        orderBy: [{ date: "desc" }, { startTime: "desc" }],
+        include: {
+          Client: true,
+          Staff: true,
+          AppointmentService: { include: { Service: true, Staff: true } },
+        },
+      }),
+      prisma.salon.findFirst(),
+      prisma.staff.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    ]);
+
+    const currency = salon?.currency ?? "USD";
+
+    // Compute stats
+    const total = historyRows.length;
+    const completed = historyRows.filter((a) => a.status === "COMPLETED").length;
+    const cancelled = historyRows.filter((a) => a.status === "CANCELLED").length;
+    const noShow = historyRows.filter((a) => a.status === "NO_SHOW").length;
+
+    const completedAppointments = historyRows.filter((a) => a.status === "COMPLETED");
+    const avgTicket =
+      completedAppointments.length > 0
+        ? completedAppointments.reduce((sum, a) => sum + a.totalAmount, 0) /
+          completedAppointments.length
+        : 0;
+
+    const stats: HistoryStats = {
+      total,
+      completed,
+      cancelled,
+      noShow,
+      completionRate: total > 0 ? (completed / total) * 100 : 0,
+      cancellationRate: total > 0 ? (cancelled / total) * 100 : 0,
+      noShowRate: total > 0 ? (noShow / total) * 100 : 0,
+      avgTicket,
+    };
+
+    const appointments: HistoryAppointment[] = historyRows.map((a) => ({
+      id: a.id,
+      date: a.date,
+      startTime: a.startTime,
+      totalAmount: a.totalAmount,
+      status: a.status,
+      client: a.Client ? { id: a.Client.id, name: a.Client.name } : null,
+      staff: { id: a.Staff.id, name: a.Staff.name },
+      services: a.AppointmentService.map((as) => ({
+        service: { id: as.Service.id, name: as.Service.name, price: as.Service.price },
+        staff: as.Staff ? { id: as.Staff.id, name: as.Staff.name } : null,
+      })),
+    }));
+
+    return (
+      <div className="p-4 md:p-8">
+        <Header view="history" today={today} staff={staffList} services={[]} categories={[]} />
+
+        <Card className="bg-card border-border">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <History className="w-5 h-5 text-primary" />
+              Appointment History
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AppointmentHistoryTable
+              appointments={appointments}
+              staff={staffList}
+              currency={currency}
+              stats={stats}
+            />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // ── Calendar view ──────────────────────────────────────────────────────────
+  if (isCalendar) {
     const rawWeek = params.week ?? today;
     const weekStart = getWeekMonday(rawWeek);
 
@@ -44,12 +135,11 @@ export default async function AppointmentsPage({ searchParams }: PageProps) {
     ]);
 
     return (
-      <div className="p-8">
+      <div className="p-4 md:p-8">
         <Header
           view="calendar"
           today={today}
           weekStart={weekStart}
-          clients={clients}
           staff={staff}
           services={services}
           categories={categories}
@@ -65,11 +155,14 @@ export default async function AppointmentsPage({ searchParams }: PageProps) {
     );
   }
 
-  // ── List view ─────────────────────────────────────────────────────────────
+  // ── List view ──────────────────────────────────────────────────────────────
   const isUpcoming = params.date === "upcoming";
   const selectedDate = (!params.date || isUpcoming) ? today : params.date;
 
-  const [appointments, salon, clients, staff, services, categories] = await Promise.all([
+  // ── Stats: compute month boundaries for monthly aggregates ────────────────
+  const monthStart = today.slice(0, 7) + "-01"; // YYYY-MM-01
+
+  const [appointments, salon, clients, staff, services, categories, statsData] = await Promise.all([
     isUpcoming
       ? prisma.appointment.findMany({
           where: { status: "SCHEDULED", date: { gte: today } },
@@ -77,7 +170,7 @@ export default async function AppointmentsPage({ searchParams }: PageProps) {
           include: {
             Client: true,
             Staff: true,
-            AppointmentService: { include: { Service: true } },
+            AppointmentService: { include: { Service: true, Staff: true } },
           },
         })
       : prisma.appointment.findMany({
@@ -86,7 +179,7 @@ export default async function AppointmentsPage({ searchParams }: PageProps) {
           include: {
             Client: true,
             Staff: true,
-            AppointmentService: { include: { Service: true } },
+            AppointmentService: { include: { Service: true, Staff: true } },
           },
         }),
     prisma.salon.findFirst(),
@@ -94,9 +187,42 @@ export default async function AppointmentsPage({ searchParams }: PageProps) {
     prisma.staff.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.service.findMany({ select: { id: true, name: true, price: true, durationMins: true, categoryId: true }, orderBy: { name: "asc" } }),
     prisma.serviceCategory.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    // Stats: today + this month
+    Promise.all([
+      // All today
+      prisma.appointment.count({ where: { date: today } }),
+      // Completed today
+      prisma.appointment.count({ where: { date: today, status: "COMPLETED" } }),
+      // No-shows this month
+      prisma.appointment.count({
+        where: { date: { gte: monthStart, lte: today }, status: "NO_SHOW" },
+      }),
+      // Completed this month (for avg value)
+      prisma.appointment.findMany({
+        where: { date: { gte: monthStart, lte: today }, status: "COMPLETED" },
+        select: { totalAmount: true },
+      }),
+    ]),
   ]);
 
   const currency = salon?.currency ?? "USD";
+
+  // Unpack stats
+  const [totalToday, completedToday, noShowsMonth, completedMonthRows] = statsData;
+  const avgValueMonth =
+    completedMonthRows.length > 0
+      ? completedMonthRows.reduce((s, a) => s + a.totalAmount, 0) / completedMonthRows.length
+      : 0;
+
+  const mappedAppointments = appointments.map((a) => ({
+    ...a,
+    client: a.Client ? { id: a.Client.id, name: a.Client.name } : null,
+    staff: { id: a.Staff.id, name: a.Staff.name },
+    services: a.AppointmentService.map((as) => ({
+      service: { id: as.Service.id, name: as.Service.name, price: as.Service.price, durationMins: as.Service.durationMins },
+      staff: as.Staff ? { id: as.Staff.id, name: as.Staff.name } : null,
+    })),
+  }));
 
   const cardTitle = isUpcoming
     ? "All upcoming appointments"
@@ -105,22 +231,49 @@ export default async function AppointmentsPage({ searchParams }: PageProps) {
     : new Date(selectedDate + "T00:00:00").toLocaleDateString("en", { dateStyle: "full" });
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <Header
         view="list"
         today={today}
         selectedDate={selectedDate}
-        clients={clients}
         staff={staff}
         services={services}
         categories={categories}
       />
 
+      {/* Stats row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        <StatCard
+          label="Total today"
+          value={totalToday}
+          icon={<CalendarDays className="w-4 h-4 text-primary" />}
+        />
+        <StatCard
+          label="Completed today"
+          value={completedToday}
+          icon={<CheckCircle2 className="w-4 h-4 text-primary" />}
+        />
+        <StatCard
+          label="No-shows this month"
+          value={noShowsMonth}
+          icon={<UserX className="w-4 h-4 text-muted-foreground" />}
+          muted
+        />
+        <StatCard
+          label="Avg value this month"
+          value={avgValueMonth.toLocaleString("en", {
+            style: "currency",
+            currency,
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0,
+          })}
+          icon={<TrendingUp className="w-4 h-4 text-primary" />}
+        />
+      </div>
+
       {/* Date navigation — only in list view */}
       <div className="mb-5">
-        <Suspense fallback={null}>
-          <DateNav currentDate={params.date ?? today} />
-        </Suspense>
+        <DateNav currentDate={params.date ?? today} />
       </div>
 
       <Card className="bg-card border-border">
@@ -137,7 +290,7 @@ export default async function AppointmentsPage({ searchParams }: PageProps) {
         </CardHeader>
         <CardContent>
           <AppointmentsListWithSheet
-            appointments={appointments}
+            appointments={mappedAppointments}
             currency={currency}
             clients={clients}
             staff={staff}
@@ -156,63 +309,103 @@ function Header({
   today,
   weekStart,
   selectedDate,
-  clients,
   staff,
   services,
   categories,
 }: {
-  view: "list" | "calendar";
+  view: "list" | "calendar" | "history";
   today: string;
   weekStart?: string;
   selectedDate?: string;
-  clients: { id: string; name: string }[];
   staff: { id: string; name: string }[];
   services: { id: string; name: string; price: number; durationMins: number; categoryId: string }[];
   categories: { id: string; name: string }[];
 }) {
   const calHref = `?view=calendar&week=${weekStart ?? today}`;
   const listHref = `?view=list&date=${selectedDate ?? today}`;
+  const historyHref = `?view=history`;
 
   return (
-    <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
+    <div className="flex items-start sm:items-center justify-between mb-6 md:mb-8 flex-wrap gap-4">
       <div>
-        <h1 className="text-3xl font-bold text-foreground">Appointments</h1>
-        <p className="text-muted-foreground mt-1">Manage bookings and schedule</p>
+        <h1 className="text-2xl md:text-3xl font-bold text-foreground">Appointments</h1>
+        <p className="text-muted-foreground mt-1 text-sm">Manage bookings and schedule</p>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
         {/* View toggle */}
         <div className="flex rounded-lg overflow-hidden border border-border">
           <Link
             href={listHref}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm font-medium transition-colors ${
               view === "list"
                 ? "bg-primary text-primary-foreground"
                 : "bg-card text-muted-foreground hover:text-foreground hover:bg-secondary"
             }`}
           >
-            <List className="w-3.5 h-3.5" />
-            List view
+            <List className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="hidden sm:inline">List view</span>
           </Link>
           <Link
             href={calHref}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm font-medium transition-colors ${
               view === "calendar"
                 ? "bg-primary text-primary-foreground"
                 : "bg-card text-muted-foreground hover:text-foreground hover:bg-secondary"
             }`}
           >
-            <LayoutGrid className="w-3.5 h-3.5" />
-            Calendar view
+            <LayoutGrid className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="hidden sm:inline">Calendar</span>
+          </Link>
+          <Link
+            href={historyHref}
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm font-medium transition-colors ${
+              view === "history"
+                ? "bg-primary text-primary-foreground"
+                : "bg-card text-muted-foreground hover:text-foreground hover:bg-secondary"
+            }`}
+          >
+            <History className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="hidden sm:inline">History</span>
           </Link>
         </div>
-        <NewAppointmentDialog
-          clients={clients}
-          staff={staff}
-          services={services}
-          categories={categories}
-        />
+
+        {/* Only show New Appointment button in non-history views */}
+        {view !== "history" && (
+          <NewAppointmentModal
+            staff={staff}
+            services={services}
+            categories={categories}
+          />
+        )}
       </div>
     </div>
+  );
+}
+
+/** Stats summary card */
+function StatCard({
+  label,
+  value,
+  icon,
+  muted = false,
+}: {
+  label: string;
+  value: string | number;
+  icon: React.ReactNode;
+  muted?: boolean;
+}) {
+  return (
+    <Card className="bg-card border-border">
+      <CardContent className="pt-4 pb-4">
+        <div className="flex items-center gap-2 mb-1">
+          {icon}
+          <span className="text-xs text-muted-foreground font-medium">{label}</span>
+        </div>
+        <p className={`text-2xl font-bold ${muted ? "text-muted-foreground" : "text-foreground"}`}>
+          {value}
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { AppointmentWithRelations } from "@/app/actions/appointments";
 import { CalendarDetailSheet } from "./calendar-detail-sheet";
+import { timeSlotsOverlap } from "@/lib/conflict-detection";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const START_HOUR = 7;  // 7 am
@@ -54,6 +55,41 @@ function totalDuration(appt: AppointmentWithRelations): number {
   return sum > 0 ? sum : 30;
 }
 
+// ── Overlap detection for a single staff column ────────────────────────────────
+
+function addMinutesToTime(time: string, mins: number): string {
+  const [h, m] = time.split(":").map(Number);
+  const total = h * 60 + m + mins;
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/** Returns a Set of IDs of appointments that overlap with any other non-CANCELLED
+ *  appointment in the same column (same staff, same day). */
+function findOverlappingIds(appts: AppointmentWithRelations[]): Set<string> {
+  const overlapping = new Set<string>();
+  const active = appts.filter((a) => a.status !== "CANCELLED");
+  for (let i = 0; i < active.length; i++) {
+    for (let j = i + 1; j < active.length; j++) {
+      const a = active[i];
+      const b = active[j];
+      const aDur = totalDuration(a);
+      const bDur = totalDuration(b);
+      const aEnd = addMinutesToTime(a.startTime, aDur);
+      const bEnd = addMinutesToTime(b.startTime, bDur);
+      if (
+        timeSlotsOverlap(
+          { startTime: a.startTime, endTime: aEnd, date: a.date },
+          { startTime: b.startTime, endTime: bEnd, date: b.date }
+        )
+      ) {
+        overlapping.add(a.id);
+        overlapping.add(b.id);
+      }
+    }
+  }
+  return overlapping;
+}
+
 // ── Appointment block ──────────────────────────────────────────────────────────
 
 function AppointmentBlock({
@@ -61,11 +97,13 @@ function AppointmentBlock({
   onClick,
   columnCount,
   columnIndex,
+  isConflicting,
 }: {
   appt: AppointmentWithRelations;
   onClick: (appt: AppointmentWithRelations) => void;
   columnCount: number;
   columnIndex: number;
+  isConflicting?: boolean;
 }) {
   const top = topPx(appt.startTime);
   const height = heightPx(totalDuration(appt));
@@ -86,7 +124,8 @@ function AppointmentBlock({
           onClick(appt);
         }
       }}
-      className={`absolute rounded-md px-1.5 py-0.5 cursor-pointer text-[10px] leading-tight overflow-hidden select-none ${style}`}
+      className={`absolute rounded-md px-1.5 py-0.5 cursor-pointer text-[10px] leading-tight overflow-hidden select-none ${style}${isConflicting ? " border-2 border-red-500" : ""}`}
+      title={isConflicting ? "Conflict: overlapping appointment for this staff member" : undefined}
       style={{
         top: `${top}px`,
         height: `${height}px`,
@@ -235,6 +274,7 @@ export function DayView({ appointments, date, splitByStaff = false }: DayViewPro
           {/* Staff columns */}
           {staffColumns.map(({ label, appts }) => {
             const placed = assignColumns(appts);
+            const overlappingIds = findOverlappingIds(appts);
             return (
               <div key={label} className="flex-1 flex flex-col">
                 {/* Column header */}
@@ -274,6 +314,7 @@ export function DayView({ appointments, date, splitByStaff = false }: DayViewPro
                       onClick={handleClick}
                       columnCount={colCount}
                       columnIndex={col}
+                      isConflicting={overlappingIds.has(appt.id)}
                     />
                   ))}
                 </div>

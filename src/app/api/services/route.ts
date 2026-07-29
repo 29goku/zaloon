@@ -10,7 +10,13 @@ export async function GET() {
 
     const categories = await prisma.serviceCategory.findMany({
       where: { salonId: salon.id },
-      include: { Service: true },
+      include: {
+        Service: {
+          include: {
+            StaffService: { select: { staffId: true } },
+          },
+        },
+      },
       orderBy: { name: "asc" },
     });
 

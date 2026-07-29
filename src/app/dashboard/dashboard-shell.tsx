@@ -3,15 +3,21 @@
 import { useState } from "react";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { Toaster } from "@/components/ui/toast";
-import { GlobalSearch } from "@/components/search/global-search";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { MobileNav } from "@/components/layout/mobile-nav";
+import { CommandPaletteProvider } from "@/components/search/command-palette";
+import { SearchButton } from "@/components/search/search-button";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { QuickActionsFab } from "@/components/dashboard/quick-actions-fab";
+import { BranchSelector } from "@/components/branches/branch-selector";
 import {
   Sheet,
   SheetContent,
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Menu } from "lucide-react";
+import type { SalonLocation } from "@/components/sidebar/location-switcher";
+import type { Branch } from "@/app/actions/branches";
 
 function TodayDate() {
   const now = new Date();
@@ -42,59 +48,83 @@ function TodayDate() {
 export function DashboardShell({
   children,
   salonName,
+  salonLocations = [],
   pendingReminderCount = 0,
+  branches = [],
 }: {
   children: React.ReactNode;
   salonName: string;
+  salonLocations?: SalonLocation[];
   pendingReminderCount?: number;
+  branches?: Branch[];
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
 
   return (
-    <div className="flex min-h-screen bg-background">
-      {/* Desktop sidebar */}
-      <div className="hidden md:fixed md:inset-y-0 md:left-0 md:flex md:w-64 md:z-20">
-        <SidebarNav salonName={salonName} pendingReminderCount={pendingReminderCount} />
+    <CommandPaletteProvider>
+      <div className="flex min-h-screen bg-background">
+        {/* Desktop sidebar — visible at lg+ */}
+        <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:flex lg:w-64 lg:z-20">
+          <SidebarNav
+            salonName={salonName}
+            salonLocations={salonLocations}
+            pendingReminderCount={pendingReminderCount}
+          />
+        </div>
+
+        {/* Main content */}
+        <div className="flex-1 flex flex-col min-h-screen ml-0 lg:ml-64">
+          {/* Top header */}
+          <header className="sticky top-0 z-10 flex items-center gap-2 lg:gap-3 h-16 px-3 lg:px-6 bg-background/95 backdrop-blur-sm border-b border-border">
+            {/* Mobile hamburger — visible until lg */}
+            <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+              <SheetTrigger
+                className="lg:hidden flex-shrink-0 inline-flex items-center justify-center rounded-md w-9 h-9 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+                aria-label="Open navigation menu"
+              >
+                <Menu className="w-5 h-5" />
+              </SheetTrigger>
+              <SheetContent side="left" className="p-0 w-64" showCloseButton={false}>
+                <SidebarNav
+                  salonName={salonName}
+                  salonLocations={salonLocations}
+                  pendingReminderCount={pendingReminderCount}
+                  onClose={() => setSheetOpen(false)}
+                />
+              </SheetContent>
+            </Sheet>
+
+            {/* Search button — opens command palette on click or ⌘K */}
+            <div className="flex-1 min-w-0 max-w-md">
+              <SearchButton />
+            </div>
+
+            {/* Branch selector — only shown when 2+ branches configured */}
+            <BranchSelector branches={branches} />
+
+            {/* Date — hidden on very small screens to give search room */}
+            <TodayDate />
+
+            {/* Notification bell — always visible */}
+            <div className="flex-shrink-0">
+              <NotificationBell />
+            </div>
+
+            {/* Theme toggle — hidden on mobile (available in sidebar) */}
+            <div className="flex-shrink-0 hidden lg:block">
+              <ThemeToggle className="text-muted-foreground hover:bg-accent hover:text-accent-foreground" />
+            </div>
+          </header>
+
+          <main className="flex-1 pb-16 lg:pb-0">
+            {children}
+          </main>
+        </div>
+
+        <MobileNav />
+        <QuickActionsFab />
+        <Toaster />
       </div>
-
-      {/* Main content */}
-      <div className="flex-1 flex flex-col min-h-screen ml-0 md:ml-64">
-        {/* Top header */}
-        <header className="sticky top-0 z-10 flex items-center gap-2 md:gap-3 h-16 px-3 md:px-6 bg-background/95 backdrop-blur-sm border-b border-border">
-          {/* Mobile hamburger */}
-          <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-            <SheetTrigger
-              className="md:hidden flex-shrink-0 inline-flex items-center justify-center rounded-md w-9 h-9 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
-              aria-label="Open navigation menu"
-            >
-              <Menu className="w-5 h-5" />
-            </SheetTrigger>
-            <SheetContent side="left" className="p-0 w-64" showCloseButton={false}>
-              <SidebarNav salonName={salonName} pendingReminderCount={pendingReminderCount} onClose={() => setSheetOpen(false)} />
-            </SheetContent>
-          </Sheet>
-
-          {/* Search — takes remaining space, max-width on larger screens */}
-          <div className="flex-1 min-w-0 max-w-md">
-            <GlobalSearch />
-          </div>
-
-          {/* Date — hidden on very small screens to give search room */}
-          <TodayDate />
-
-          {/* Notification bell — always visible */}
-          <div className="flex-shrink-0">
-            <NotificationBell />
-          </div>
-        </header>
-
-        <main className="flex-1 pb-16 md:pb-0">
-          {children}
-        </main>
-      </div>
-
-      <MobileNav />
-      <Toaster />
-    </div>
+    </CommandPaletteProvider>
   );
 }

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { AppointmentWithRelations } from "@/app/actions/appointments";
 import { CalendarDetailSheet } from "./calendar-detail-sheet";
+import { timeSlotsOverlap } from "@/lib/conflict-detection";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -38,14 +39,57 @@ function fmt12(t: string): string {
   return `${hh}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
+// ── Overlap detection ──────────────────────────────────────────────────────────
+
+/** Returns a Set of appointment IDs that overlap with another appointment from
+ *  the same staff member on the same day. Excludes CANCELLED appointments. */
+function findOverlappingIds(appts: AppointmentWithRelations[]): Set<string> {
+  const overlapping = new Set<string>();
+  const active = appts.filter((a) => a.status !== "CANCELLED");
+
+  for (let i = 0; i < active.length; i++) {
+    for (let j = i + 1; j < active.length; j++) {
+      const a = active[i];
+      const b = active[j];
+      // Only flag if same staff member
+      if (a.Staff.id !== b.Staff.id) continue;
+
+      const aDur = a.AppointmentService.reduce((s, as) => s + as.Service.durationMins, 0) || 30;
+      const bDur = b.AppointmentService.reduce((s, as) => s + as.Service.durationMins, 0) || 30;
+
+      const aEnd = addMinutesToTime(a.startTime, aDur);
+      const bEnd = addMinutesToTime(b.startTime, bDur);
+
+      if (
+        timeSlotsOverlap(
+          { startTime: a.startTime, endTime: aEnd, date: a.date },
+          { startTime: b.startTime, endTime: bEnd, date: b.date }
+        )
+      ) {
+        overlapping.add(a.id);
+        overlapping.add(b.id);
+      }
+    }
+  }
+  return overlapping;
+}
+
+function addMinutesToTime(time: string, mins: number): string {
+  const [h, m] = time.split(":").map(Number);
+  const total = h * 60 + m + mins;
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
 // ── Appointment chip ───────────────────────────────────────────────────────────
 
 function AppointmentChip({
   appt,
   onClick,
+  isConflicting,
 }: {
   appt: AppointmentWithRelations;
   onClick: (appt: AppointmentWithRelations) => void;
+  isConflicting?: boolean;
 }) {
   const chipStyle = STATUS_CHIP[appt.status] ?? STATUS_CHIP.SCHEDULED;
   const serviceName =
@@ -65,7 +109,8 @@ function AppointmentChip({
           onClick(appt);
         }
       }}
-      className={`rounded-md px-1.5 py-1 cursor-pointer text-[10px] leading-tight overflow-hidden select-none mb-0.5 ${chipStyle}`}
+      className={`rounded-md px-1.5 py-1 cursor-pointer text-[10px] leading-tight overflow-hidden select-none mb-0.5 ${chipStyle}${isConflicting ? " border-2 border-red-500" : ""}`}
+      title={isConflicting ? "Conflict: overlapping appointment for same staff" : undefined}
     >
       <p className="font-semibold truncate">{appt.Client?.name ?? "Walk-in"}</p>
       <p className="truncate opacity-80">{fmt12(appt.startTime)}</p>
@@ -176,6 +221,7 @@ export function WeekView({ appointments, weekStart, onNavigate }: WeekViewProps)
             const dayAppts = (byDate.get(date) ?? []).sort((a, b) =>
               a.startTime.localeCompare(b.startTime)
             );
+            const overlappingIds = findOverlappingIds(dayAppts);
             const isToday = date === today;
             return (
               <div
@@ -190,7 +236,12 @@ export function WeekView({ appointments, weekStart, onNavigate }: WeekViewProps)
                   </div>
                 ) : (
                   dayAppts.map((appt) => (
-                    <AppointmentChip key={appt.id} appt={appt} onClick={handleClick} />
+                    <AppointmentChip
+                      key={appt.id}
+                      appt={appt}
+                      onClick={handleClick}
+                      isConflicting={overlappingIds.has(appt.id)}
+                    />
                   ))
                 )}
               </div>

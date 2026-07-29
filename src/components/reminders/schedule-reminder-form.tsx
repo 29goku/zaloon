@@ -103,7 +103,7 @@ export function ScheduleReminderForm({
         {/* Channel */}
         <div className="space-y-1.5">
           <Label className="text-xs font-medium">Channel</Label>
-          <Select value={channel} onValueChange={setChannel} disabled={submitting}>
+          <Select value={channel} onValueChange={(v) => { if (v) setChannel(v); }} disabled={submitting}>
             <SelectTrigger className="h-9 w-full">
               <SelectValue placeholder="Select channel" />
             </SelectTrigger>
@@ -120,7 +120,7 @@ export function ScheduleReminderForm({
         {/* Hours before */}
         <div className="space-y-1.5 sm:col-span-2">
           <Label className="text-xs font-medium">Send</Label>
-          <Select value={hours} onValueChange={setHours} disabled={submitting}>
+          <Select value={hours} onValueChange={(v) => { if (v) setHours(v); }} disabled={submitting}>
             <SelectTrigger className="h-9 w-full">
               <SelectValue placeholder="Select timing" />
             </SelectTrigger>

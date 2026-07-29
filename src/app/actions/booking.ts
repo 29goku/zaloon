@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { isStaffAvailable } from "@/app/actions/time-off";
 
 // ─── getAvailableSlots ──────────────────────────────────────────────────────────
 //
@@ -21,6 +22,10 @@ export async function getAvailableSlots(
   serviceDurationMins: number
 ): Promise<string[]> {
   if (!staffId || !date) return [];
+
+  // 0. Check if staff member has approved time off on this date
+  const available = await isStaffAvailable(staffId, date);
+  if (!available) return [];
 
   const dateObj = new Date(date + "T00:00:00");
   const dayOfWeek = dateObj.getDay(); // 0=Sun … 6=Sat

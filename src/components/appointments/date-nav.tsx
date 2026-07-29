@@ -1,21 +1,24 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 function offsetDate(dateStr: string, days: number): string {
-  const d = new Date(dateStr + "T00:00:00");
-  d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d + days));
+  return date.toISOString().split("T")[0];
 }
 
 function todayStr(): string {
-  return new Date().toISOString().split("T")[0];
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 function formatFull(dateStr: string): string {
-  // Parse as local date to avoid UTC-offset display issues
   const [year, month, day] = dateStr.split("-").map(Number);
   const d = new Date(year, month - 1, day);
   return d.toLocaleDateString("en", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
@@ -27,7 +30,6 @@ interface DateNavProps {
 
 export function DateNav({ currentDate }: DateNavProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const isUpcoming = currentDate === "upcoming";
   const today = todayStr();
@@ -35,9 +37,7 @@ export function DateNav({ currentDate }: DateNavProps) {
   const isToday = displayDate === today;
 
   function navigate(date: string) {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("date", date);
-    router.push(`?${params.toString()}`);
+    router.push(`?date=${date}`);
   }
 
   return (

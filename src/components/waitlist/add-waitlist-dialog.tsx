@@ -34,6 +34,8 @@ const formSchema = z.object({
   phone: z.string().optional(),
   serviceId: z.string().optional(),
   staffId: z.string().optional(),
+  preferredDate: z.string().optional(),
+  preferredTime: z.enum(["morning", "afternoon", "evening"]).optional(),
   note: z.string().optional(),
 });
 
@@ -46,6 +48,12 @@ interface AddWaitlistDialogProps {
   services: ServiceOption[];
   staff: StaffOption[];
 }
+
+const TIME_RANGES = [
+  { value: "morning", label: "Morning (9 AM – 12 PM)" },
+  { value: "afternoon", label: "Afternoon (12 PM – 5 PM)" },
+  { value: "evening", label: "Evening (5 PM – 8 PM)" },
+] as const;
 
 export function AddWaitlistDialog({ services, staff }: AddWaitlistDialogProps) {
   const [open, setOpen] = React.useState(false);
@@ -65,6 +73,8 @@ export function AddWaitlistDialog({ services, staff }: AddWaitlistDialogProps) {
       phone: "",
       serviceId: undefined,
       staffId: undefined,
+      preferredDate: "",
+      preferredTime: undefined,
       note: "",
     },
   });
@@ -76,6 +86,8 @@ export function AddWaitlistDialog({ services, staff }: AddWaitlistDialogProps) {
       phone: values.phone,
       serviceId: values.serviceId === "none" ? undefined : values.serviceId,
       staffId: values.staffId === "none" ? undefined : values.staffId,
+      preferredDate: values.preferredDate || undefined,
+      preferredTime: values.preferredTime,
       note: values.note,
     });
     if (!result.success) {
@@ -191,6 +203,43 @@ export function AddWaitlistDialog({ services, staff }: AddWaitlistDialogProps) {
                 </Select>
               )}
             />
+          </div>
+
+          {/* Preferred date + time */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="wl-date">Preferred date</Label>
+              <Input
+                id="wl-date"
+                type="date"
+                {...register("preferredDate")}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Time of day</Label>
+              <Controller
+                name="preferredTime"
+                control={control}
+                render={({ field }) => (
+                  <Select
+                    value={field.value ?? "none"}
+                    onValueChange={(val) => field.onChange(val === "none" ? undefined : val)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Any" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Any</SelectItem>
+                      {TIME_RANGES.map((t) => (
+                        <SelectItem key={t.value} value={t.value}>
+                          {t.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
           </div>
 
           {/* Note */}

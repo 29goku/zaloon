@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Outfit } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme/theme-provider";
+import { ThemeInitializer } from "@/components/theme/theme-initializer";
 import { PwaRegister } from "@/components/pwa-register";
 
 const outfit = Outfit({
@@ -38,17 +39,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${outfit.variable} h-full dark`} suppressHydrationWarning>
-      <head>
-        {/* Inline script to apply saved theme before first paint — avoids flash */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('zaloon-theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;var theme=t||(d?'dark':'light');document.documentElement.classList.toggle('dark',theme==='dark');}catch(e){}})()`,
-          }}
-        />
-      </head>
+    <html lang="en" className={`${outfit.variable} h-full`} suppressHydrationWarning>
       <body className="antialiased min-h-full">
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <ThemeInitializer />
+          {children}
+        </ThemeProvider>
         <PwaRegister />
       </body>
     </html>

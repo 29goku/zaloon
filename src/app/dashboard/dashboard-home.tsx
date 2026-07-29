@@ -15,10 +15,17 @@ import {
   CreditCard,
   CheckCircle2,
   BarChart2,
+  Sparkles,
+  Target,
+  Activity,
 } from "lucide-react";
 import { WeeklyRevenueBar } from "@/components/dashboard/weekly-revenue-bar";
 import { AppointmentFunnel } from "@/components/dashboard/appointment-funnel";
 import { TopClientsWidget } from "@/components/dashboard/top-clients-widget";
+import { QuickStatsWidget } from "@/components/dashboard/quick-stats-widget";
+import { CustomizeDashboardButton } from "@/components/dashboard/customize-dashboard-button";
+import { BirthdaysWidget, type BirthdayClient } from "@/components/dashboard/birthdays-widget";
+import { useDashboardLayout } from "@/hooks/use-dashboard-layout";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,7 +36,7 @@ type Appt = {
   status: string;
   totalAmount: number;
   client: { name: string } | null;
-  staff: { name: string };
+  staff: { name: string; id: string };
   services: { service: { name: string } }[];
 };
 
@@ -50,6 +57,18 @@ type ApptFunnel = {
   noShow: number;
 };
 type TopClient = { name: string; visits: number; spent: number };
+
+type ActivityItem =
+  | { type: "new_client"; id: string; name: string; timestamp: string }
+  | {
+      type: "completed_appt";
+      id: string;
+      clientName: string;
+      staffName: string;
+      services: string[];
+      timestamp: string;
+      amount: number;
+    };
 
 type Props = {
   // Existing
@@ -78,6 +97,19 @@ type Props = {
   weeklyRevenueData: WeeklyDay[];
   apptFunnel: ApptFunnel;
   topClients: TopClient[];
+  // New widgets
+  clientsServedToday: number;
+  nextHourAppts: Appt[];
+  monthlyTarget: number;
+  activityFeed: ActivityItem[];
+  top3Staff: { id: string; name: string }[];
+  serverNow: string;
+  // Birthday clients this month
+  birthdayClients?: BirthdayClient[];
+  // Quick stats extras
+  servicesOffered?: number;
+  avgRating?: number;
+  activeMemberships?: number;
 };
 
 // ─── Revenue Sparkline ────────────────────────────────────────────────────────
@@ -148,20 +180,133 @@ const statusConfig: Record<
   },
 };
 
+// ─── Staff colour palette (consistent per staff id) ───────────────────────────
+
+const STAFF_COLORS = [
+  { bg: "bg-violet-500/20", text: "text-violet-600", ring: "ring-violet-400" },
+  { bg: "bg-sky-500/20", text: "text-sky-600", ring: "ring-sky-400" },
+  { bg: "bg-emerald-500/20", text: "text-emerald-600", ring: "ring-emerald-400" },
+  { bg: "bg-rose-500/20", text: "text-rose-600", ring: "ring-rose-400" },
+  { bg: "bg-amber-500/20", text: "text-amber-600", ring: "ring-amber-400" },
+  { bg: "bg-cyan-500/20", text: "text-cyan-600", ring: "ring-cyan-400" },
+  { bg: "bg-fuchsia-500/20", text: "text-fuchsia-600", ring: "ring-fuchsia-400" },
+  { bg: "bg-teal-500/20", text: "text-teal-600", ring: "ring-teal-400" },
+];
+
+function staffColor(staffId: string) {
+  // Simple hash of the id string → deterministic palette index
+  let hash = 0;
+  for (let i = 0; i < staffId.length; i++) {
+    hash = (hash * 31 + staffId.charCodeAt(i)) & 0xffff;
+  }
+  return STAFF_COLORS[hash % STAFF_COLORS.length];
+}
+
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
-function Avatar({ name }: { name: string }) {
+function Avatar({
+  name,
+  staffId,
+  size = "md",
+}: {
+  name: string;
+  staffId?: string;
+  size?: "sm" | "md";
+}) {
   const initials = name
     .split(" ")
     .slice(0, 2)
     .map((n) => n[0])
     .join("")
     .toUpperCase();
+
+  const color = staffId
+    ? staffColor(staffId)
+    : { bg: "bg-primary/20", text: "text-primary", ring: "" };
+
+  const sz = size === "sm" ? "w-7 h-7 text-[10px]" : "w-9 h-9 text-xs";
+
   return (
-    <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold flex-shrink-0">
+    <div
+      className={`${sz} rounded-full ${color.bg} flex items-center justify-center ${color.text} font-bold flex-shrink-0`}
+    >
       {initials}
     </div>
   );
+}
+
+// ─── Revenue Progress Bar ─────────────────────────────────────────────────────
+
+function RevenueProgressBar({
+  current,
+  target,
+  fmt,
+}: {
+  current: number;
+  target: number;
+  fmt: (n: number) => string;
+}) {
+  const pct = Math.min(Math.round((current / target) * 100), 100);
+  const isOver = current >= target;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-end justify-between">
+        <div>
+          <p className="text-2xl font-bold text-foreground">{fmt(current)}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            of {fmt(target)} target
+          </p>
+        </div>
+        <div className="text-right">
+          <p
+            className={`text-2xl font-bold tabular-nums ${
+              isOver ? "text-emerald-500" : "text-primary"
+            }`}
+          >
+            {pct}%
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">achieved</p>
+        </div>
+      </div>
+      <div className="h-3 rounded-full bg-secondary overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${
+            isOver
+              ? "bg-emerald-500"
+              : pct >= 75
+              ? "bg-primary"
+              : pct >= 40
+              ? "bg-[#F48E16]"
+              : "bg-[#F41666]"
+          }`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {!isOver && (
+        <p className="text-xs text-muted-foreground">
+          {fmt(target - current)} remaining to hit target
+        </p>
+      )}
+      {isOver && (
+        <p className="text-xs text-emerald-600 font-medium">
+          Target exceeded by {fmt(current - target)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Relative time helper ─────────────────────────────────────────────────────
+
+function relativeTime(isoString: string): string {
+  const diff = Date.now() - new Date(isoString).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -186,8 +331,19 @@ export function DashboardHome({
   weeklyRevenueData,
   apptFunnel,
   topClients,
+  clientsServedToday,
+  nextHourAppts,
+  monthlyTarget,
+  activityFeed,
+  top3Staff,
+  serverNow,
+  birthdayClients = [],
+  servicesOffered = 0,
+  avgRating = 0,
+  activeMemberships = 0,
 }: Props) {
-  const now = new Date();
+  const { visible, toggleWidget, resetLayout } = useDashboardLayout();
+  const now = new Date(serverNow);
   const greeting =
     now.getHours() < 12
       ? "Good morning"
@@ -201,6 +357,13 @@ export function DashboardHome({
       currency,
       minimumFractionDigits: 0,
     }).format(n);
+
+  const formattedDate = now.toLocaleDateString("en", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 
   // ── Stats cards ────────────────────────────────────────────────────────────
 
@@ -269,61 +432,125 @@ export function DashboardHome({
     { label: "This Month", amount: revenueThisMonth },
   ];
 
+  // ── Group today's appointments by time slot ────────────────────────────────
+
+  type TimeGroup = { time: string; appts: Appt[] };
+  const scheduleGroups: TimeGroup[] = [];
+  for (const appt of todayApptsList) {
+    const existing = scheduleGroups.find((g) => g.time === appt.startTime);
+    if (existing) {
+      existing.appts.push(appt);
+    } else {
+      scheduleGroups.push({ time: appt.startTime, appts: [appt] });
+    }
+  }
+
   return (
-    <div className="p-8 space-y-8">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">
-          {greeting} 👋
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          Here&apos;s what&apos;s happening at{" "}
-          <span className="text-primary font-medium">{salonName}</span> today.
-        </p>
+    <div className="p-4 md:p-8 space-y-8">
+
+      {/* ── Today at a Glance Header ──────────────────────────────────────── */}
+      <div className="rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border border-primary/20 p-6">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Sparkles className="w-5 h-5 text-primary" />
+              <h1 className="text-2xl font-bold text-foreground">
+                {greeting}, {salonName}!
+              </h1>
+            </div>
+            <p className="text-muted-foreground text-sm">{formattedDate}</p>
+          </div>
+
+          {/* Customize button + Quick glance stats */}
+          <div className="flex flex-col items-end gap-3">
+            <CustomizeDashboardButton
+              visible={visible}
+              toggleWidget={toggleWidget}
+              resetLayout={resetLayout}
+            />
+            <div className="flex gap-4 sm:gap-6 flex-wrap justify-start sm:justify-end">
+              <div className="text-center">
+                <p className="text-3xl font-bold text-foreground tabular-nums">
+                  {todayAppts}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  appointments today
+                </p>
+              </div>
+              <div className="w-px bg-border hidden sm:block" />
+              <div className="text-center">
+                <p className="text-3xl font-bold text-foreground tabular-nums">
+                  {fmt(revenueToday)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  revenue today
+                </p>
+              </div>
+              <div className="w-px bg-border hidden sm:block" />
+              <div className="text-center">
+                <p className="text-3xl font-bold text-foreground tabular-nums">
+                  {clientsServedToday}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  clients served
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        {stats.map((s) => (
-          <Card key={s.title} className="bg-card border-border">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className={`${s.bg} p-2.5 rounded-xl`}>
-                  <s.icon className={`w-5 h-5 ${s.color}`} />
+      {visible.kpis && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {stats.map((s) => (
+            <Card key={s.title} className="bg-card border-border">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className={`${s.bg} p-2.5 rounded-xl`}>
+                    <s.icon className={`w-5 h-5 ${s.color}`} />
+                  </div>
                 </div>
-              </div>
-              <p className="text-3xl font-bold text-foreground mb-1">{s.value}</p>
-              <p className="text-sm text-muted-foreground">{s.title}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+                <p className="text-3xl font-bold text-foreground mb-1">{s.value}</p>
+                <p className="text-sm text-muted-foreground">{s.title}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* ── Birthdays Widget ───────────────────────────────────────────────── */}
+      {birthdayClients.length > 0 && (
+        <BirthdaysWidget clients={birthdayClients} />
+      )}
 
       {/* Revenue Overview + Sparkline */}
-      <Card className="bg-card border-border">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg font-semibold flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-primary" />
-            Revenue Overview
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-6">
-            <div className="flex gap-8 flex-1">
-              {revenueSummary.map((r) => (
-                <div key={r.label}>
-                  <p className="text-xs text-muted-foreground mb-1">{r.label}</p>
-                  <p className="text-xl font-bold text-foreground">{fmt(r.amount)}</p>
-                </div>
-              ))}
+      {visible.revenue && (
+        <Card className="bg-card border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg font-semibold flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-primary" />
+              Revenue Overview
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-6">
+              <div className="flex gap-8 flex-1">
+                {revenueSummary.map((r) => (
+                  <div key={r.label}>
+                    <p className="text-xs text-muted-foreground mb-1">{r.label}</p>
+                    <p className="text-xl font-bold text-foreground">{fmt(r.amount)}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-col items-end gap-1">
+                <p className="text-xs text-muted-foreground">Last 7 days</p>
+                <RevenueSparkline data={revenueSparkline} />
+              </div>
             </div>
-            <div className="flex flex-col items-end gap-1">
-              <p className="text-xs text-muted-foreground">Last 7 days</p>
-              <RevenueSparkline data={revenueSparkline} />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Quick Actions */}
       <div>
@@ -355,63 +582,239 @@ export function DashboardHome({
         </div>
       </div>
 
-      {/* ── Analytics Section ──────────────────────────────────────────────── */}
-      <div>
-        <h2 className="text-base font-semibold text-foreground mb-4 flex items-center gap-2">
-          <BarChart2 className="w-4 h-4 text-primary" />
-          Analytics
-        </h2>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Weekly Revenue Bar Chart */}
-          <Card className="bg-card border-border">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-primary" />
-                Revenue This Week
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-1">
-              <WeeklyRevenueBar data={weeklyRevenueData} currency={currency} />
-            </CardContent>
-          </Card>
+      {/* ── New Widgets Row: Next Hour + Revenue vs Target ─────────────────── */}
+      {(visible.nextHour || visible.revenue) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Upcoming in Next Hour */}
+          {visible.nextHour && (
+            <Card className="bg-card border-border">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-[#F48E16]" />
+                  Upcoming in Next Hour
+                  {nextHourAppts.length > 0 && (
+                    <Badge className="ml-auto bg-[#F48E16]/15 text-[#F48E16] border-0 font-normal">
+                      {nextHourAppts.length} coming up
+                    </Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {nextHourAppts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 gap-2">
+                    <CheckCircle2 className="w-8 h-8 text-emerald-500" />
+                    <p className="text-sm font-medium text-foreground">
+                      All clear for now
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      No appointments in the next 60 minutes.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {nextHourAppts.map((appt) => (
+                      <div
+                        key={appt.id}
+                        className="flex items-center gap-3 p-3 rounded-xl bg-[#F48E16]/5 border border-[#F48E16]/20 hover:bg-[#F48E16]/10 transition-colors"
+                      >
+                        <div className="min-w-[52px] text-center flex-shrink-0">
+                          <p className="text-sm font-bold text-[#F48E16] tabular-nums">
+                            {appt.startTime}
+                          </p>
+                        </div>
+                        <Avatar
+                          name={appt.client?.name ?? "WI"}
+                          staffId={appt.staff.id}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-foreground truncate text-sm">
+                            {appt.client?.name ?? "Walk-in"}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {appt.services.map((s) => s.service.name).join(", ") ||
+                              "No services"}{" "}
+                            · {appt.staff.name}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
-          {/* Appointment Funnel / Donut */}
-          <Card className="bg-card border-border">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-primary" />
-                Appointments This Month
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-1">
-              <AppointmentFunnel
-                scheduled={apptFunnel.scheduled}
-                completed={apptFunnel.completed}
-                cancelled={apptFunnel.cancelled}
-                noShow={apptFunnel.noShow}
-              />
-            </CardContent>
-          </Card>
-
-          {/* Top Clients */}
-          <Card className="bg-card border-border">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <Users className="w-4 h-4 text-primary" />
-                Top Clients
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-1">
-              <TopClientsWidget clients={topClients} currency={currency} />
-            </CardContent>
-          </Card>
+          {/* Revenue vs Target */}
+          {visible.revenue && (
+            <Card className="bg-card border-border">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <Target className="w-5 h-5 text-primary" />
+                  Revenue vs Target
+                  <Badge className="ml-auto bg-primary/15 text-primary border-0 font-normal">
+                    This Month
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <RevenueProgressBar
+                  current={revenueThisMonth}
+                  target={monthlyTarget}
+                  fmt={fmt}
+                />
+              </CardContent>
+            </Card>
+          )}
         </div>
-      </div>
+      )}
+
+      {/* ── Analytics Section ──────────────────────────────────────────────── */}
+      {(visible.revenue || visible.apptFunnel || visible.topClients) && (
+        <div>
+          <h2 className="text-base font-semibold text-foreground mb-4 flex items-center gap-2">
+            <BarChart2 className="w-4 h-4 text-primary" />
+            Analytics
+          </h2>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Weekly Revenue Bar Chart */}
+            {visible.revenue && (
+              <Card className="bg-card border-border">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-primary" />
+                    Revenue This Week
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-1">
+                  <WeeklyRevenueBar data={weeklyRevenueData} currency={currency} />
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Appointment Funnel / Donut */}
+            {visible.apptFunnel && (
+              <Card className="bg-card border-border">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-primary" />
+                    Appointments This Month
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-1">
+                  <AppointmentFunnel
+                    scheduled={apptFunnel.scheduled}
+                    completed={apptFunnel.completed}
+                    cancelled={apptFunnel.cancelled}
+                    noShow={apptFunnel.noShow}
+                  />
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Top Clients */}
+            {visible.topClients && (
+              <Card className="bg-card border-border">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <Users className="w-4 h-4 text-primary" />
+                    Top Clients
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-1">
+                  <TopClientsWidget clients={topClients} currency={currency} />
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Client Activity Feed ───────────────────────────────────────────── */}
+      {visible.activityFeed && <Card className="bg-card border-border">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-lg font-semibold flex items-center gap-2">
+            <Activity className="w-5 h-5 text-primary" />
+            Client Activity Feed
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {activityFeed.length === 0 ? (
+            <div className="text-center py-8">
+              <Activity className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+              <p className="text-muted-foreground text-sm">No recent activity.</p>
+            </div>
+          ) : (
+            <div className="relative">
+              {/* Vertical timeline line */}
+              <div className="absolute left-[17px] top-2 bottom-2 w-px bg-border" />
+              <div className="space-y-3">
+                {activityFeed.map((item, idx) => (
+                  <div key={`${item.type}-${item.id}-${idx}`} className="flex items-start gap-4 pl-1">
+                    {/* Timeline dot */}
+                    <div
+                      className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center z-10 ${
+                        item.type === "new_client"
+                          ? "bg-emerald-500/15"
+                          : "bg-primary/15"
+                      }`}
+                    >
+                      {item.type === "new_client" ? (
+                        <UserPlus
+                          className="w-3.5 h-3.5 text-emerald-600"
+                        />
+                      ) : (
+                        <CheckCircle2
+                          className="w-3.5 h-3.5 text-primary"
+                        />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0 pb-1">
+                      {item.type === "new_client" ? (
+                        <p className="text-sm text-foreground">
+                          <span className="font-semibold">{item.name}</span>{" "}
+                          <span className="text-muted-foreground">
+                            joined as a new client
+                          </span>
+                        </p>
+                      ) : (
+                        <p className="text-sm text-foreground">
+                          <span className="font-semibold">
+                            {item.clientName}
+                          </span>{" "}
+                          <span className="text-muted-foreground">
+                            completed{" "}
+                            {item.services.length > 0
+                              ? item.services.slice(0, 2).join(", ")
+                              : "an appointment"}
+                            {item.services.length > 2
+                              ? ` +${item.services.length - 2} more`
+                              : ""}
+                            {" "}with {item.staffName}
+                          </span>
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {relativeTime(item.timestamp)}
+                        {item.type === "completed_appt" && item.amount > 0 && (
+                          <span className="ml-2 text-foreground font-medium">
+                            {fmt(item.amount)}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>}
 
       {/* Upcoming Appointments + Staff Today */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {(visible.upcoming || visible.staffUtilization) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Upcoming Appointments */}
-        <Card className="bg-card border-border">
+        {visible.upcoming && <Card className="bg-card border-border">
           <CardHeader className="pb-4">
             <CardTitle className="text-lg font-semibold flex items-center gap-2">
               <CalendarDays className="w-5 h-5 text-primary" />
@@ -451,7 +854,10 @@ export function DashboardHome({
                           {appt.startTime}
                         </p>
                       </div>
-                      <Avatar name={appt.client?.name ?? "WI"} />
+                      <Avatar
+                        name={appt.client?.name ?? "WI"}
+                        staffId={appt.staff.id}
+                      />
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-foreground truncate text-sm">
                           {appt.client?.name ?? "Walk-in"}
@@ -474,10 +880,10 @@ export function DashboardHome({
               </div>
             )}
           </CardContent>
-        </Card>
+        </Card>}
 
         {/* Staff Today */}
-        <Card className="bg-card border-border">
+        {visible.staffUtilization && <Card className="bg-card border-border">
           <CardHeader className="pb-4">
             <CardTitle className="text-lg font-semibold flex items-center gap-2">
               <Scissors className="w-5 h-5 text-primary" />
@@ -497,102 +903,257 @@ export function DashboardHome({
               </div>
             ) : (
               <div className="space-y-2">
-                {staffUtilization.staff.map((member) => (
-                  <div
-                    key={member.id}
-                    className="flex items-center gap-3 p-3 rounded-xl bg-secondary/40 hover:bg-secondary/70 transition-colors"
-                  >
-                    <Avatar name={member.name} />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-foreground truncate text-sm">
-                        {member.name}
-                      </p>
-                      {member.shift && (
-                        <p className="text-xs text-muted-foreground">
-                          {member.shift}
+                {staffUtilization.staff.map((member) => {
+                  const color = staffColor(member.id);
+                  return (
+                    <div
+                      key={member.id}
+                      className="flex items-center gap-3 p-3 rounded-xl bg-secondary/40 hover:bg-secondary/70 transition-colors"
+                    >
+                      <Avatar name={member.name} staffId={member.id} />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-foreground truncate text-sm">
+                          {member.name}
                         </p>
-                      )}
+                        {member.shift && (
+                          <p className="text-xs text-muted-foreground">
+                            {member.shift}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex-shrink-0 text-right">
+                        <p
+                          className={`text-sm font-bold tabular-nums ${color.text}`}
+                        >
+                          {member.appointmentsToday}
+                        </p>
+                        <p className="text-xs text-muted-foreground">appts</p>
+                      </div>
                     </div>
-                    <div className="flex-shrink-0 text-right">
-                      <p className="text-sm font-bold text-foreground">
-                        {member.appointmentsToday}
-                      </p>
-                      <p className="text-xs text-muted-foreground">appts</p>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>
-        </Card>
-      </div>
+        </Card>}
+        </div>
+      )}
 
-      {/* Today's Full Schedule */}
-      <Card className="bg-card border-border">
+      {/* ── Today's Full Schedule (improved) ──────────────────────────────── */}
+      {visible.todaySchedule && <Card className="bg-card border-border">
         <CardHeader className="pb-4">
           <CardTitle className="text-lg font-semibold flex items-center gap-2">
             <Clock className="w-5 h-5 text-primary" />
             Today&apos;s Schedule
             <Badge className="ml-auto bg-primary/20 text-primary border-0 font-normal">
-              {todayApptsList.length} appointments
+              {todayApptsList.length} appointment{todayApptsList.length !== 1 ? "s" : ""}
             </Badge>
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {todayApptsList.length === 0 ? (
-            <div className="text-center py-12">
-              <CalendarDays className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground text-sm">
-                No appointments today.
-              </p>
-              <p className="text-muted-foreground/60 text-xs mt-1">
-                New bookings will appear here.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {todayApptsList.map((appt) => {
-                const cfg = statusConfig[appt.status] ?? statusConfig.NO_SHOW;
-                return (
-                  <div
-                    key={appt.id}
-                    className={`flex items-center gap-4 p-4 rounded-xl bg-secondary/40 hover:bg-secondary/70 transition-colors border-l-[3px] ${cfg.border}`}
-                  >
-                    <div className="bg-background/60 rounded-full px-3 py-1.5 min-w-[64px] text-center flex-shrink-0">
-                      <p className="text-xs font-semibold text-foreground tabular-nums">
-                        {appt.startTime}
-                      </p>
-                    </div>
-                    <Avatar name={appt.client?.name ?? "WI"} />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-foreground truncate">
-                        {appt.client?.name ?? "Walk-in"}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {appt.services
-                          .map((s) => s.service.name)
-                          .join(", ") || "No services"}
-                        {" · "}
-                        {appt.staff.name}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <p className="text-sm font-semibold text-foreground">
-                        {fmt(appt.totalAmount)}
-                      </p>
-                      <span
-                        className={`text-xs px-2.5 py-1 rounded-full font-medium ${cfg.pill}`}
+          {scheduleGroups.length === 0 ? (
+            <>
+              {/* Empty state with top-3 staff "Available" blocks */}
+              <div className="mb-6 text-center">
+                <CalendarDays className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+                <p className="text-muted-foreground text-sm">
+                  No appointments today.
+                </p>
+                <p className="text-muted-foreground/60 text-xs mt-1">
+                  New bookings will appear here.
+                </p>
+              </div>
+              {top3Staff.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                    Available Staff
+                  </p>
+                  {top3Staff.map((s) => {
+                    const color = staffColor(s.id);
+                    return (
+                      <div
+                        key={s.id}
+                        className="flex items-center gap-3 p-3 rounded-xl border border-dashed border-border opacity-60"
                       >
-                        {cfg.label}
-                      </span>
-                    </div>
+                        <div
+                          className={`w-9 h-9 rounded-full ${color.bg} flex items-center justify-center ${color.text} font-bold text-xs`}
+                        >
+                          {s.name
+                            .split(" ")
+                            .slice(0, 2)
+                            .map((n) => n[0])
+                            .join("")
+                            .toUpperCase()}
+                        </div>
+                        <p className="text-sm text-muted-foreground font-medium flex-1">
+                          {s.name}
+                        </p>
+                        <span className="text-xs text-muted-foreground/60 italic">
+                          Available
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="space-y-4">
+              {scheduleGroups.map((group) => (
+                <div key={group.time}>
+                  {/* Time slot header */}
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-xs font-bold text-foreground tabular-nums bg-secondary px-2.5 py-1 rounded-full">
+                      {group.time}
+                    </span>
+                    <div className="flex-1 h-px bg-border" />
+                    <span className="text-xs text-muted-foreground">
+                      {group.appts.length} appt{group.appts.length !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+
+                  {/* Appointments in this time slot */}
+                  <div className="space-y-1.5 pl-2">
+                    {group.appts.map((appt) => {
+                      const cfg =
+                        statusConfig[appt.status] ?? statusConfig.NO_SHOW;
+                      const color = staffColor(appt.staff.id);
+                      return (
+                        <div
+                          key={appt.id}
+                          className={`flex items-start sm:items-center gap-3 p-3 rounded-xl bg-secondary/40 hover:bg-secondary/70 transition-colors border-l-[3px] ${cfg.border}`}
+                        >
+                          {/* Staff avatar with per-staff colour */}
+                          <div
+                            className={`w-9 h-9 rounded-full ${color.bg} flex items-center justify-center ${color.text} font-bold text-xs flex-shrink-0`}
+                            title={`Staff: ${appt.staff.name}`}
+                          >
+                            {appt.staff.name
+                              .split(" ")
+                              .slice(0, 2)
+                              .map((n) => n[0])
+                              .join("")
+                              .toUpperCase()}
+                          </div>
+
+                          {/* Client avatar (neutral) */}
+                          <Avatar name={appt.client?.name ?? "WI"} size="sm" />
+
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-foreground truncate text-sm">
+                              {appt.client?.name ?? "Walk-in"}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {appt.services
+                                .map((s) => s.service.name)
+                                .join(", ") || "No services"}
+                              {" · "}
+                              <span className={`font-medium ${color.text}`}>
+                                {appt.staff.name}
+                              </span>
+                            </p>
+                            {/* Amount + status badge on mobile (below text) */}
+                            <div className="flex items-center gap-2 mt-1 sm:hidden">
+                              <p className="text-sm font-semibold text-foreground">
+                                {fmt(appt.totalAmount)}
+                              </p>
+                              <span
+                                className={`text-xs px-2 py-0.5 rounded-full font-medium ${cfg.pill}`}
+                              >
+                                {cfg.label}
+                              </span>
+                            </div>
+                          </div>
+                          {/* Amount + status badge on desktop (inline) */}
+                          <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
+                            <p className="text-sm font-semibold text-foreground">
+                              {fmt(appt.totalAmount)}
+                            </p>
+                            <span
+                              className={`text-xs px-2.5 py-1 rounded-full font-medium ${cfg.pill}`}
+                            >
+                              {cfg.label}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+
+              {/* "Available" blocks for top staff not already in schedule */}
+              {(() => {
+                const scheduledStaffIds = new Set(
+                  todayApptsList.map((a) => a.staff.id)
+                );
+                const availableStaff = top3Staff.filter(
+                  (s) => !scheduledStaffIds.has(s.id)
+                );
+                if (availableStaff.length === 0) return null;
+                return (
+                  <div className="mt-4 pt-4 border-t border-border space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                      Also Available Today
+                    </p>
+                    {availableStaff.map((s) => {
+                      const color = staffColor(s.id);
+                      return (
+                        <div
+                          key={s.id}
+                          className="flex items-center gap-3 p-3 rounded-xl border border-dashed border-border opacity-60"
+                        >
+                          <div
+                            className={`w-9 h-9 rounded-full ${color.bg} flex items-center justify-center ${color.text} font-bold text-xs`}
+                          >
+                            {s.name
+                              .split(" ")
+                              .slice(0, 2)
+                              .map((n) => n[0])
+                              .join("")
+                              .toUpperCase()}
+                          </div>
+                          <p className="text-sm text-muted-foreground font-medium flex-1">
+                            {s.name}
+                          </p>
+                          <span className="text-xs text-muted-foreground/60 italic">
+                            Available
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
-              })}
+              })()}
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card>}
+
+      {/* ── Quick Stats ──────────────────────────────────────────────────────── */}
+      {visible.quickStats && (
+        <Card className="bg-card border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg font-semibold flex items-center gap-2">
+              <BarChart2 className="w-5 h-5 text-primary" />
+              Quick Stats
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <QuickStatsWidget
+              totalClients={totalClients}
+              totalStaff={totalStaff}
+              servicesOffered={servicesOffered}
+              avgRating={avgRating}
+              monthlyTargetPct={Math.min(
+                Math.round((revenueThisMonth / monthlyTarget) * 100),
+                100
+              )}
+              activeMemberships={activeMemberships}
+            />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -12,8 +12,8 @@ function getDefaultRange(): { from: string; to: string } {
   };
 }
 
-function escapeCsvField(value: string | number): string {
-  const str = String(value);
+function escapeCsvField(value: string | number | null | undefined): string {
+  const str = String(value ?? "");
   if (str.includes(",") || str.includes('"') || str.includes("\n")) {
     return `"${str.replace(/"/g, '""')}"`;
   }
@@ -29,52 +29,157 @@ export async function GET(request: NextRequest) {
   const staff = await prisma.staff.findMany({
     orderBy: { name: "asc" },
     include: {
+      StaffService: {
+        select: { serviceId: true, commissionOverridePct: true },
+      },
       Appointment: {
         where: {
           status: "COMPLETED",
           date: { gte: from, lte: to },
         },
         include: {
-          Invoice: {
-            select: { total: true, status: true },
+          Invoice: { select: { total: true, status: true } },
+          AppointmentService: {
+            include: { Service: { select: { id: true, name: true } } },
           },
         },
       },
     },
   });
 
-  const rows = staff.map((member) => {
-    const appointmentCount = member.Appointment.length;
-    const revenue = member.Appointment.reduce((sum: number, appt) => {
-      const inv = appt.Invoice;
-      if (inv && inv.status === "PAID") return sum + inv.total;
-      return sum + appt.totalAmount;
-    }, 0);
-    const commissionEarned = revenue * (member.commissionPct / 100);
-    return {
-      name: member.name,
-      phone: member.phone ?? "",
-      commissionPct: member.commissionPct,
-      appointmentCount,
-      revenue,
-      commissionEarned,
-    };
-  });
+  // Build per-staff breakdown
+  const csvLines: string[] = [];
 
-  const headers = ["Staff Name", "Phone", "Appointments", "Revenue", "Commission%", "Commission Earned"];
-  const csvLines = [
-    headers.join(","),
-    ...rows.map((r) =>
-      [
-        escapeCsvField(r.name),
-        escapeCsvField(r.phone),
-        escapeCsvField(r.appointmentCount),
-        escapeCsvField(r.revenue.toFixed(2)),
-        escapeCsvField(r.commissionPct),
-        escapeCsvField(r.commissionEarned.toFixed(2)),
-      ].join(",")
-    ),
-  ];
+  // Header row
+  csvLines.push(
+    [
+      "Staff Name",
+      "Phone",
+      "Period Start",
+      "Period End",
+      "Appointments",
+      "Total Revenue",
+      "Default Commission %",
+      "Total Commission Earned",
+      "Service Name",
+      "Service Count",
+      "Service Revenue",
+      "Service Commission %",
+      "Service Commission",
+    ].join(",")
+  );
+
+  for (const member of staff) {
+    const overrideMap = new Map<string, number | null>();
+    for (const ss of member.StaffService) {
+      overrideMap.set(ss.serviceId, ss.commissionOverridePct ?? null);
+    }
+
+    const serviceMap = new Map<
+      string,
+      { name: string; count: number; revenue: number; commissionPct: number }
+    >();
+
+    let totalRevenue = 0;
+
+    for (const appt of member.Appointment) {
+      const inv = appt.Invoice;
+      const apptRevenue =
+        inv && inv.status === "PAID" ? inv.total : appt.totalAmount;
+
+      const serviceCount = appt.AppointmentService.length;
+      if (serviceCount === 0) {
+        const key = "__other__";
+        const existing = serviceMap.get(key);
+        if (existing) {
+          existing.count++;
+          existing.revenue += apptRevenue;
+        } else {
+          serviceMap.set(key, {
+            name: "Other",
+            count: 1,
+            revenue: apptRevenue,
+            commissionPct: member.commissionPct,
+          });
+        }
+        totalRevenue += apptRevenue;
+        continue;
+      }
+
+      const revenuePerService = apptRevenue / serviceCount;
+      for (const as of appt.AppointmentService) {
+        const sid = as.serviceId;
+        const override = overrideMap.get(sid);
+        const effectiveRate =
+          override !== undefined && override !== null
+            ? override
+            : member.commissionPct;
+        const existing = serviceMap.get(sid);
+        if (existing) {
+          existing.count++;
+          existing.revenue += revenuePerService;
+        } else {
+          serviceMap.set(sid, {
+            name: as.Service.name,
+            count: 1,
+            revenue: revenuePerService,
+            commissionPct: effectiveRate,
+          });
+        }
+      }
+      totalRevenue += apptRevenue;
+    }
+
+    const services = Array.from(serviceMap.values()).sort(
+      (a, b) => b.revenue - a.revenue
+    );
+    const totalCommission = services.reduce(
+      (s, x) => s + (x.revenue * x.commissionPct) / 100,
+      0
+    );
+    const apptCount = member.Appointment.length;
+
+    if (services.length === 0) {
+      // Staff with no appointments — one summary row
+      csvLines.push(
+        [
+          escapeCsvField(member.name),
+          escapeCsvField(member.phone),
+          escapeCsvField(from),
+          escapeCsvField(to),
+          escapeCsvField(apptCount),
+          escapeCsvField(totalRevenue.toFixed(2)),
+          escapeCsvField(member.commissionPct),
+          escapeCsvField(totalCommission.toFixed(2)),
+          "", "", "", "", "",
+        ].join(",")
+      );
+    } else {
+      // One row per service
+      services.forEach((svc, i) => {
+        const svcCommission = (svc.revenue * svc.commissionPct) / 100;
+        csvLines.push(
+          [
+            // Staff-level columns only on first row, blank on subsequent
+            escapeCsvField(i === 0 ? member.name : ""),
+            escapeCsvField(i === 0 ? (member.phone ?? "") : ""),
+            escapeCsvField(i === 0 ? from : ""),
+            escapeCsvField(i === 0 ? to : ""),
+            escapeCsvField(i === 0 ? apptCount : ""),
+            escapeCsvField(i === 0 ? totalRevenue.toFixed(2) : ""),
+            escapeCsvField(i === 0 ? member.commissionPct : ""),
+            escapeCsvField(i === 0 ? totalCommission.toFixed(2) : ""),
+            // Service columns
+            escapeCsvField(svc.name),
+            escapeCsvField(svc.count),
+            escapeCsvField(svc.revenue.toFixed(2)),
+            escapeCsvField(svc.commissionPct),
+            escapeCsvField(svcCommission.toFixed(2)),
+          ].join(",")
+        );
+      });
+    }
+  }
 
   const csv = csvLines.join("\n");
   const filename = `payroll_${from}_to_${to}.csv`;

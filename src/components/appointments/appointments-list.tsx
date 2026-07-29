@@ -5,6 +5,9 @@ import { updateAppointmentStatus } from "@/app/actions/appointments";
 import { CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CheckoutDialog, type CheckoutAppointment } from "./checkout-dialog";
+import { AppointmentActionButtons } from "./appointment-action-buttons";
+import { RebookModal } from "./rebook-modal";
+import { toast } from "@/components/ui/sonner";
 
 const STATUS_LABEL: Record<string, string> = {
   SCHEDULED: "Scheduled",
@@ -36,7 +39,10 @@ export type AppointmentItem = {
   notes: string | null;
   client: { id: string; name: string } | null;
   staff: { id: string; name: string };
-  services: { service: { id: string; name: string; price: number } }[];
+  services: {
+    service: { id: string; name: string; price: number; durationMins?: number };
+    staff?: { id: string; name: string } | null;
+  }[];
 };
 
 interface AppointmentsListProps {
@@ -60,6 +66,14 @@ function StatusButton({ appointmentId, status }: { appointmentId: string; status
     setPending(false);
     if (result.success) {
       setCurrentStatus(next);
+      if (next === "COMPLETED") {
+        setTimeout(() => {
+          toast.success(
+            "Appointment completed!",
+            "Follow up with the client using the Follow-Up button."
+          );
+        }, 200);
+      }
     }
   }
 
@@ -113,6 +127,7 @@ export function AppointmentsList({
       services: appt.services.map((s) => ({
         name: s.service.name,
         price: s.service.price,
+        staffName: s.staff?.name ?? null,
       })),
       currency,
     });
@@ -160,42 +175,109 @@ export function AppointmentsList({
                       onRowClick(appt);
                     }
                   } : undefined}
-                  className="flex items-center gap-4 p-4 rounded-xl bg-secondary/50 hover:bg-secondary transition-colors cursor-pointer"
+                  className="p-4 rounded-xl bg-secondary/50 hover:bg-secondary transition-colors cursor-pointer"
                 >
-                  <div className="min-w-[60px] text-center">
-                    <p className="text-sm font-bold text-foreground">{appt.startTime}</p>
+                  {/* Mobile card layout */}
+                  <div className="flex items-start justify-between gap-3 sm:hidden">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-bold text-foreground">{appt.startTime}</p>
+                        <StatusButton appointmentId={appt.id} status={appt.status} />
+                      </div>
+                      <p className="font-semibold text-foreground mt-0.5">
+                        {appt.client?.name ?? "Walk-in"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {appt.services.map((s) => s.service.name).join(", ") || "—"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{appt.staff.name}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                      <p className="text-sm font-bold text-foreground">{fmt(appt.totalAmount)}</p>
+                      {appt.status === "SCHEDULED" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-xs h-7"
+                          onClick={(e) => openCheckout(appt, e)}
+                        >
+                          Check Out
+                        </Button>
+                      )}
+                      {appt.status === "COMPLETED" && (
+                        <RebookModal
+                          appointment={{
+                            id: appt.id,
+                            staffId: appt.staff.id,
+                            clientName: appt.client?.name ?? "Walk-in",
+                            services: appt.services.map((s) => s.service.name),
+                            staffName: appt.staff.name,
+                            totalAmount: appt.totalAmount,
+                          }}
+                          onClose={() => {}}
+                          onSuccess={() => {}}
+                        />
+                      )}
+                    </div>
                   </div>
-                  <div className="w-px h-12 bg-border flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-foreground">
-                      {appt.client?.name ?? "Walk-in"}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {appt.services.map((s) => s.service.name).join(", ") || "—"}
-                    </p>
+
+                  {/* Desktop row layout */}
+                  <div className="hidden sm:flex items-center gap-4">
+                    <div className="min-w-[60px] text-center">
+                      <p className="text-sm font-bold text-foreground">{appt.startTime}</p>
+                    </div>
+                    <div className="w-px h-12 bg-border flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-foreground">
+                        {appt.client?.name ?? "Walk-in"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {appt.services.map((s) => s.service.name).join(", ") || "—"}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-sm font-medium text-muted-foreground">
+                        {appt.staff.name}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0 min-w-[70px]">
+                      <p className="text-sm font-bold text-foreground">{fmt(appt.totalAmount)}</p>
+                    </div>
+                    <StatusButton
+                      appointmentId={appt.id}
+                      status={appt.status}
+                    />
+                    {appt.status === "SCHEDULED" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-shrink-0 text-xs"
+                        onClick={(e) => openCheckout(appt, e)}
+                      >
+                        Check Out
+                      </Button>
+                    )}
+                    {appt.status === "COMPLETED" && (
+                      <RebookModal
+                        appointment={{
+                          id: appt.id,
+                          staffId: appt.staff.id,
+                          clientName: appt.client?.name ?? "Walk-in",
+                          services: appt.services.map((s) => s.service.name),
+                          staffName: appt.staff.name,
+                          totalAmount: appt.totalAmount,
+                        }}
+                        onClose={() => {}}
+                        onSuccess={() => {}}
+                      />
+                    )}
+                    <AppointmentActionButtons
+                      appointmentId={appt.id}
+                      status={appt.status}
+                      date={appt.date}
+                      startTime={appt.startTime}
+                    />
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-sm font-medium text-muted-foreground">
-                      {appt.staff.name}
-                    </p>
-                  </div>
-                  <div className="text-right flex-shrink-0 min-w-[70px]">
-                    <p className="text-sm font-bold text-foreground">{fmt(appt.totalAmount)}</p>
-                  </div>
-                  <StatusButton
-                    appointmentId={appt.id}
-                    status={appt.status}
-                  />
-                  {appt.status === "SCHEDULED" && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-shrink-0 text-xs"
-                      onClick={(e) => openCheckout(appt, e)}
-                    >
-                      Check Out
-                    </Button>
-                  )}
                 </div>
               ))}
             </div>

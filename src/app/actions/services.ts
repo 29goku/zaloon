@@ -16,6 +16,11 @@ const createServiceSchema = z.object({
   categoryId: z.string().min(1, "Category is required"),
   price: z.number().min(0, "Price must be 0 or more"),
   durationMins: z.number().int().min(1, "Duration must be at least 1 minute"),
+  isAddon: z.boolean().optional(),
+  imageUrl: z.string().url("Must be a valid URL").optional().or(z.literal("")),
+  bufferTimeBefore: z.number().int().min(0).optional(),
+  bufferTimeAfter: z.number().int().min(0).optional(),
+  onlineBooking: z.boolean().optional(),
 });
 
 const updateServiceSchema = z.object({
@@ -24,6 +29,11 @@ const updateServiceSchema = z.object({
   durationMins: z.number().int().min(1).optional(),
   categoryId: z.string().min(1).optional(),
   active: z.boolean().optional(),
+  isAddon: z.boolean().optional(),
+  imageUrl: z.string().url("Must be a valid URL").optional().or(z.literal("")).or(z.null()),
+  bufferTimeBefore: z.number().int().min(0).optional(),
+  bufferTimeAfter: z.number().int().min(0).optional(),
+  onlineBooking: z.boolean().optional(),
 });
 
 const updateCategorySchema = z.object({
@@ -83,6 +93,11 @@ export async function createService(
         name: parsed.data.name,
         price: parsed.data.price,
         durationMins: parsed.data.durationMins,
+        isAddon: parsed.data.isAddon ?? false,
+        imageUrl: parsed.data.imageUrl || null,
+        bufferTimeBefore: parsed.data.bufferTimeBefore ?? 0,
+        bufferTimeAfter: parsed.data.bufferTimeAfter ?? 0,
+        onlineBooking: parsed.data.onlineBooking ?? true,
       },
     });
 
@@ -105,9 +120,15 @@ export async function updateService(
   }
 
   try {
+    // Coerce empty imageUrl to null
+    const updateData = {
+      ...parsed.data,
+      imageUrl: parsed.data.imageUrl === "" ? null : parsed.data.imageUrl,
+    };
+
     await prisma.service.update({
       where: { id },
-      data: parsed.data,
+      data: updateData,
     });
 
     return { success: true };
@@ -129,6 +150,76 @@ export async function toggleServiceActive(
   } catch (err) {
     console.error("[toggleServiceActive]", err);
     return { success: false, error: "Failed to update service" };
+  }
+}
+
+// ── duplicateService ───────────────────────────────────────────────────────
+
+export async function duplicateService(
+  id: string
+): Promise<{ success: true; id: string } | { success: false; error: string }> {
+  try {
+    const original = await prisma.service.findUnique({ where: { id } });
+    if (!original) return { success: false, error: "Service not found" };
+
+    const copy = await prisma.service.create({
+      data: {
+        id: randomUUID(),
+        salonId: original.salonId,
+        categoryId: original.categoryId,
+        name: `Copy of ${original.name}`,
+        price: original.price,
+        durationMins: original.durationMins,
+        active: original.active,
+        isAddon: original.isAddon,
+        imageUrl: original.imageUrl,
+        bufferTimeBefore: original.bufferTimeBefore,
+        bufferTimeAfter: original.bufferTimeAfter,
+        onlineBooking: original.onlineBooking,
+      },
+    });
+
+    return { success: true, id: copy.id };
+  } catch (err) {
+    console.error("[duplicateService]", err);
+    return { success: false, error: "Failed to duplicate service" };
+  }
+}
+
+// ── bulkUpdatePrices ───────────────────────────────────────────────────────
+
+export async function bulkUpdatePrices(
+  percentage: number
+): Promise<{ success: true; updated: number } | { success: false; error: string }> {
+  if (typeof percentage !== "number" || isNaN(percentage)) {
+    return { success: false, error: "Invalid percentage" };
+  }
+
+  try {
+    const salon = await prisma.salon.findFirst();
+    if (!salon) return { success: false, error: "No salon found" };
+
+    const services = await prisma.service.findMany({
+      where: { salonId: salon.id },
+      select: { id: true, price: true },
+    });
+
+    const multiplier = 1 + percentage / 100;
+
+    // SQLite doesn't support updateMany with computed values, so update individually
+    await Promise.all(
+      services.map((s) =>
+        prisma.service.update({
+          where: { id: s.id },
+          data: { price: Math.round(s.price * multiplier * 100) / 100 },
+        })
+      )
+    );
+
+    return { success: true, updated: services.length };
+  } catch (err) {
+    console.error("[bulkUpdatePrices]", err);
+    return { success: false, error: "Failed to update prices" };
   }
 }
 
@@ -192,4 +283,88 @@ export async function deleteCategory(
     console.error("[deleteCategory]", err);
     return { success: false, error: "Failed to delete category" };
   }
+}
+
+// ── importServices ─────────────────────────────────────────────────────────
+
+export type ImportServiceInput = {
+  name: string;
+  price: string;
+  duration: string;
+  category?: string;
+};
+
+export async function importServices(
+  rows: ImportServiceInput[]
+): Promise<{ success: boolean; imported: number; errors: string[] }> {
+  const salon = await prisma.salon.findFirst();
+  if (!salon) {
+    return { success: false, imported: 0, errors: ["No salon found"] };
+  }
+
+  let imported = 0;
+  const errors: string[] = [];
+
+  for (const raw of rows) {
+    const name = raw.name?.trim();
+    if (!name) {
+      errors.push("Skipped row with empty name");
+      continue;
+    }
+
+    const price = parseFloat(raw.price);
+    if (isNaN(price) || price < 0) {
+      errors.push(`Skipped "${name}": invalid price "${raw.price}"`);
+      continue;
+    }
+
+    const durationMins = parseInt(raw.duration, 10);
+    if (isNaN(durationMins) || durationMins < 1) {
+      errors.push(`Skipped "${name}": invalid duration "${raw.duration}"`);
+      continue;
+    }
+
+    try {
+      // Resolve or create category
+      const categoryName = raw.category?.trim() || "Imported";
+      let category = await prisma.serviceCategory.findFirst({
+        where: { salonId: salon.id, name: categoryName },
+        select: { id: true },
+      });
+      if (!category) {
+        category = await prisma.serviceCategory.create({
+          data: {
+            id: randomUUID(),
+            salonId: salon.id,
+            name: categoryName,
+          },
+          select: { id: true },
+        });
+      }
+
+      // Skip if service with same name + price already exists
+      const existing = await prisma.service.findFirst({
+        where: { salonId: salon.id, name, price },
+        select: { id: true },
+      });
+      if (existing) continue;
+
+      await prisma.service.create({
+        data: {
+          id: randomUUID(),
+          salonId: salon.id,
+          categoryId: category.id,
+          name,
+          price,
+          durationMins,
+        },
+      });
+      imported++;
+    } catch (err) {
+      console.error("[importServices] row error", err);
+      errors.push(`Failed to import "${name}"`);
+    }
+  }
+
+  return { success: true, imported, errors };
 }

@@ -39,7 +39,7 @@ export function BookingLink({ slug }: BookingLinkProps) {
     <div className="space-y-3">
       {/* URL display */}
       <div className="flex items-center gap-2 p-3 bg-secondary rounded-xl border border-border/50">
-        <span className="flex-1 text-sm font-mono text-foreground truncate select-all">
+        <span className="flex-1 text-sm font-mono text-foreground truncate select-all" suppressHydrationWarning>
           {bookingUrl}
         </span>
       </div>

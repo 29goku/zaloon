@@ -18,7 +18,7 @@ import { checkoutAppointment } from "@/app/actions/appointments";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
-type Service = { name: string; price: number };
+type Service = { name: string; price: number; staffName?: string | null };
 
 export interface CheckoutAppointment {
   id: string;
@@ -208,14 +208,18 @@ export function CheckoutDialog({
                 </div>
 
                 {appointment.services.length > 0 && (
-                  <div className="space-y-1 border-t border-border/60 pt-3">
+                  <div className="space-y-1.5 border-t border-border/60 pt-3">
                     {appointment.services.map((svc, i) => (
-                      <div
-                        key={i}
-                        className="flex justify-between text-xs text-muted-foreground"
-                      >
-                        <span>{svc.name}</span>
-                        <span>{fmt(svc.price)}</span>
+                      <div key={i} className="flex justify-between items-start text-xs text-muted-foreground">
+                        <div className="flex-1 min-w-0">
+                          <span className="text-foreground">{svc.name}</span>
+                          {svc.staffName && (
+                            <span className="block text-muted-foreground">
+                              Staff: {svc.staffName}
+                            </span>
+                          )}
+                        </div>
+                        <span className="shrink-0 ml-2">{fmt(svc.price)}</span>
                       </div>
                     ))}
                   </div>

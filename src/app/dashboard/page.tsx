@@ -36,9 +36,12 @@ export default async function DashboardPage() {
 
   // Day of week (0=Sun,1=Mon...6=Sat) for shift lookup
   const jsDay = now.getDay(); // 0=Sun
-  // Shift model uses: 0=Mon,1=Tue,...,6=Sun convention — check schema
-  // Shift.dayOfWeek is Int — we pass jsDay directly as stored
   const todayDayOfWeek = jsDay;
+
+  // Next-hour boundary for "Upcoming in Next Hour" widget
+  const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
+  const currentTimeStr = now.toTimeString().slice(0, 5);   // "HH:MM"
+  const oneHourStr = oneHourFromNow.toTimeString().slice(0, 5); // "HH:MM"
 
   const [
     salon,
@@ -54,6 +57,16 @@ export default async function DashboardPage() {
     completedAllTime,
     totalApptsAllTime,
     staffWithTodayShifts,
+    // New: clients served today (completed appointments today)
+    clientsServedToday,
+    // New: last 5 new clients
+    recentNewClients,
+    // New: last 5 completed appointments
+    recentCompletedAppts,
+    // Quick stats extras
+    servicesOffered,
+    avgRatingAgg,
+    activeMemberships,
   ] = await Promise.all([
     prisma.salon.findFirst(),
 
@@ -123,13 +136,56 @@ export default async function DashboardPage() {
         },
       },
     }),
+
+    // New: clients served today (completed appointments)
+    prisma.appointment.count({
+      where: { date: today, status: "COMPLETED" },
+    }),
+
+    // New: last 5 new clients added
+    prisma.client.findMany({
+      take: 5,
+      orderBy: { createdAt: "desc" },
+      select: { id: true, name: true, createdAt: true },
+    }),
+
+    // New: last 5 completed appointments
+    prisma.appointment.findMany({
+      where: { status: "COMPLETED" },
+      take: 5,
+      orderBy: { createdAt: "desc" },
+      include: {
+        Client: true,
+        Staff: true,
+        AppointmentService: { include: { Service: true } },
+      },
+    }),
+
+    // servicesOffered: count of active services
+    prisma.service.count({ where: { active: true } }),
+
+    // avgRating: average from reviews
+    prisma.review.aggregate({ _avg: { rating: true } }),
+
+    // activeMemberships: count of active ClientMembership records
+    prisma.clientMembership.count({ where: { status: "ACTIVE" } }),
   ]);
 
-  // Today's appointments list (up to 8)
+  // Birthday clients this month (SQLite/Postgres: fetch all with birthday and filter in JS)
+  const allBirthdayClients = await prisma.client.findMany({
+    where: { birthday: { not: null } },
+    select: { id: true, name: true, phone: true, birthday: true, loyaltyPoints: true },
+  });
+  const birthdayClientsThisMonth = allBirthdayClients.filter((c) => {
+    const bday = new Date(c.birthday!);
+    return bday.getMonth() === now.getMonth();
+  });
+
+  // Today's appointments list (up to 20 — more for grouping by time slot)
   const todayApptsList = await prisma.appointment.findMany({
     where: { date: today },
     orderBy: { startTime: "asc" },
-    take: 8,
+    take: 20,
     include: {
       Client: true,
       Staff: true,
@@ -153,6 +209,29 @@ export default async function DashboardPage() {
       Staff: true,
       AppointmentService: { include: { Service: true } },
     },
+  });
+
+  // New: appointments starting within the next 60 minutes
+  const nextHourAppts = await prisma.appointment.findMany({
+    where: {
+      date: today,
+      status: "SCHEDULED",
+      startTime: { gte: currentTimeStr, lte: oneHourStr },
+    },
+    orderBy: { startTime: "asc" },
+    take: 10,
+    include: {
+      Client: true,
+      Staff: true,
+      AppointmentService: { include: { Service: true } },
+    },
+  });
+
+  // New: top 3 staff (by appointment count) for "Available" empty-slot display
+  const top3Staff = await prisma.staff.findMany({
+    take: 3,
+    orderBy: { Appointment: { _count: "desc" } },
+    select: { id: true, name: true },
   });
 
   // Last 7 days revenue sparkline
@@ -247,6 +326,52 @@ export default async function DashboardPage() {
     })),
   };
 
+  function mapAppt(
+    a: (typeof todayApptsList)[number]
+  ) {
+    return {
+      ...a,
+      client: a.Client ? { name: a.Client.name } : null,
+      staff: { name: a.Staff.name, id: a.Staff.id },
+      services: a.AppointmentService.map((as) => ({
+        service: { name: as.Service.name },
+      })),
+    };
+  }
+
+  const avgRating = avgRatingAgg._avg.rating ?? 0;
+
+  // Monthly revenue target: use totalRevenue * 1.2 as mock target
+  const totalMonthRevenue = monthRevenue._sum.total ?? 0;
+  const monthlyTarget = totalMonthRevenue * 1.2 || 10000;
+
+  // Build client activity feed: interleave new clients + completed appts
+  const newClientItems = recentNewClients.map((c) => ({
+    type: "new_client" as const,
+    id: c.id,
+    name: c.name,
+    timestamp: c.createdAt.toISOString(),
+  }));
+
+  const completedApptItems = recentCompletedAppts.map((a) => ({
+    type: "completed_appt" as const,
+    id: a.id,
+    clientName: a.Client?.name ?? "Walk-in",
+    staffName: a.Staff.name,
+    services: a.AppointmentService.map((as) => as.Service.name),
+    timestamp: a.createdAt.toISOString(),
+    amount: a.totalAmount,
+  }));
+
+  // Merge and sort by timestamp descending, take top 8
+  const activityFeed = [
+    ...newClientItems.map((item) => ({ ...item, _ts: item.timestamp })),
+    ...completedApptItems.map((item) => ({ ...item, _ts: item.timestamp })),
+  ]
+    .sort((a, b) => (a._ts < b._ts ? 1 : -1))
+    .slice(0, 8)
+    .map(({ _ts: _discarded, ...rest }) => rest);
+
   return (
     <DashboardHome
       salonName={salon?.name ?? "Your Salon"}
@@ -255,15 +380,15 @@ export default async function DashboardPage() {
       totalClients={totalClients}
       totalStaff={totalStaff}
       revenue={revenue}
-      todayApptsList={todayApptsList}
+      todayApptsList={todayApptsList.map(mapAppt)}
       // Existing new props
       revenueToday={todayRevenue._sum.total ?? 0}
       revenueThisWeek={weekRevenue._sum.total ?? 0}
-      revenueThisMonth={monthRevenue._sum.total ?? 0}
+      revenueThisMonth={totalMonthRevenue}
       newClientsThisWeek={newClientsThisWeek}
       todayScheduledCount={todayScheduledCount}
       completionRate={completionRate}
-      upcomingAppts={upcomingAppts}
+      upcomingAppts={upcomingAppts.map(mapAppt)}
       staffUtilization={staffUtilization}
       revenueSparkline={last7Days}
       // Analytics widget props
@@ -275,6 +400,17 @@ export default async function DashboardPage() {
         noShow: apptNoShow,
       }}
       topClients={topClients}
+      // New widget props
+      clientsServedToday={clientsServedToday}
+      nextHourAppts={nextHourAppts.map(mapAppt)}
+      monthlyTarget={monthlyTarget}
+      activityFeed={activityFeed}
+      top3Staff={top3Staff.map((s) => ({ id: s.id, name: s.name }))}
+      serverNow={now.toISOString()}
+      birthdayClients={birthdayClientsThisMonth}
+      servicesOffered={servicesOffered}
+      avgRating={avgRating}
+      activeMemberships={activeMemberships}
     />
   );
 }

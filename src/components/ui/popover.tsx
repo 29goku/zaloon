@@ -26,8 +26,29 @@ function usePopover() {
 }
 
 // ----- Root -----
-function Popover({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
+function Popover({
+  children,
+  open: controlledOpen,
+  onOpenChange,
+}: {
+  children: React.ReactNode;
+  /** Optional controlled open state */
+  open?: boolean;
+  /** Called when the popover wants to open or close */
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+
+  const setOpen = useCallback(
+    (v: boolean) => {
+      if (!isControlled) setInternalOpen(v);
+      onOpenChange?.(v);
+    },
+    [isControlled, onOpenChange]
+  );
+
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -41,7 +62,7 @@ function Popover({ children }: { children: React.ReactNode }) {
     }
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
-  }, [open]);
+  }, [open, setOpen]);
 
   // Close on Escape
   useEffect(() => {
@@ -51,7 +72,7 @@ function Popover({ children }: { children: React.ReactNode }) {
     }
     document.addEventListener("keydown", handle);
     return () => document.removeEventListener("keydown", handle);
-  }, [open]);
+  }, [open, setOpen]);
 
   return (
     <PopoverContext.Provider value={{ open, setOpen, triggerRef }}>

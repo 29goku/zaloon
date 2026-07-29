@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users } from "lucide-react";
+import { ExportButton } from "./export-button";
 
 export interface StaffPerformanceRow {
   staffId: string;
@@ -27,10 +28,27 @@ export function StaffPerformanceTable({ data, currency }: StaffPerformanceTableP
   return (
     <Card className="bg-card border-border">
       <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
-          <Users className="w-4 h-4 text-[#F41666]" />
-          Staff Performance
-        </CardTitle>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="w-4 h-4 text-[#F41666]" />
+            Staff Performance
+          </CardTitle>
+          <ExportButton
+            label="staff-performance"
+            getData={() =>
+              data.map((r) => ({
+                "Staff Member": r.name,
+                "Total Appointments": r.totalAppointments,
+                Completed: r.completedAppointments,
+                "Completion %":
+                  r.totalAppointments > 0
+                    ? ((r.completedAppointments / r.totalAppointments) * 100).toFixed(1)
+                    : "0",
+                Revenue: r.revenue,
+              }))
+            }
+          />
+        </div>
       </CardHeader>
       <CardContent className="p-0">
         {data.length === 0 ? (
