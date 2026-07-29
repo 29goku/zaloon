@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { DashboardHome } from "./dashboard-home";
 import { getRevenueGoals } from "@/app/actions/settings";
+import { getBudgets } from "@/app/actions/budget";
+import { EXPENSE_CATEGORIES } from "@/app/actions/expenses-constants";
 import { getRecentActivity, getRecentChanges } from "@/lib/activity-feed";
 
 export const dynamic = "force-dynamic";
@@ -350,6 +352,27 @@ export default async function DashboardPage() {
     ? revenueGoals.monthly
     : (totalMonthRevenue * 1.2 || 10000);
 
+  // Budget alert: count categories that are over budget this month
+  const monthStartStr = monthStart.toISOString().split("T")[0];
+  const todayStr = today;
+  const [budgets, monthExpenses] = await Promise.all([
+    getBudgets(),
+    prisma.expense.groupBy({
+      by: ["category"],
+      where: { salonId: salon?.id ?? "", date: { gte: monthStartStr, lte: todayStr } },
+      _sum: { amount: true },
+    }),
+  ]);
+  const spentByCategory: Record<string, number> = {};
+  for (const row of monthExpenses) {
+    spentByCategory[row.category] = row._sum.amount ?? 0;
+  }
+  const overBudgetCount = EXPENSE_CATEGORIES.filter((cat) => {
+    const budget = budgets[cat] ?? 0;
+    const spent = spentByCategory[cat] ?? 0;
+    return budget > 0 && spent > budget;
+  }).length;
+
   // Build client activity feed: interleave new clients + completed appts
   const newClientItems = recentNewClients.map((c) => ({
     type: "new_client" as const,
@@ -422,6 +445,7 @@ export default async function DashboardPage() {
       avgRating={avgRating}
       activeMemberships={activeMemberships}
       recentActivity={recentActivity}
+      overBudgetCount={overBudgetCount}
     />
   );
 }

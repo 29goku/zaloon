@@ -127,7 +127,7 @@ export default async function FinancePage({
         paymentMethod: true,
         clientId: true,
         createdAt: true,
-        tips: true,
+        tip: true,
         Appointment: {
           select: {
             staffId: true,
@@ -170,7 +170,7 @@ export default async function FinancePage({
 
   const grossRevenue = paidInvoices.reduce((s, i) => s + i.total, 0);
   const refunds = voidInvoices.reduce((s, i) => s + i.total, 0);
-  const tipsTotal = paidInvoices.reduce((s, i) => s + (i.tips ?? 0), 0);
+  const tipsTotal = paidInvoices.reduce((s, i) => s + (i.tip ?? 0), 0);
   const netRevenue = grossRevenue - refunds;
   const totalExpenses = expensesRaw.reduce((s, e) => s + e.amount, 0);
   const grossProfit = netRevenue - totalExpenses;
@@ -290,7 +290,7 @@ export default async function FinancePage({
     if (!dailyRevenueMap[d]) dailyRevenueMap[d] = { invoices: 0, total: 0, tips: 0 };
     dailyRevenueMap[d].invoices++;
     dailyRevenueMap[d].total += inv.total;
-    dailyRevenueMap[d].tips += inv.tips ?? 0;
+    dailyRevenueMap[d].tips += inv.tip ?? 0;
   }
   const dailyRevenue = Object.entries(dailyRevenueMap)
     .sort((a, b) => a[0].localeCompare(b[0]))

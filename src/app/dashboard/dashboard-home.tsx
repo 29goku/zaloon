@@ -114,6 +114,8 @@ type Props = {
   activeMemberships?: number;
   // Activity feed from lib
   recentActivity?: LibActivityItem[];
+  // Budget alert
+  overBudgetCount?: number;
 };
 
 // ─── Revenue Sparkline ────────────────────────────────────────────────────────
@@ -346,6 +348,7 @@ export function DashboardHome({
   avgRating = 0,
   activeMemberships = 0,
   recentActivity = [],
+  overBudgetCount = 0,
 }: Props) {
   const { visible, toggleWidget, resetLayout } = useDashboardLayout();
   const now = new Date(serverNow);
@@ -504,6 +507,23 @@ export function DashboardHome({
           </div>
         </div>
       </div>
+
+      {/* ── Budget Alert Banner ── */}
+      {overBudgetCount > 0 && (
+        <div className="flex items-center gap-3 px-5 py-3 bg-destructive/10 border border-destructive/30 rounded-xl text-sm">
+          <span className="text-destructive">⚠</span>
+          <span className="text-destructive font-semibold">
+            {overBudgetCount}{" "}
+            {overBudgetCount === 1 ? "expense category is" : "expense categories are"} over budget this month.
+          </span>
+          <Link
+            href="/dashboard/finance?tab=budgets"
+            className="ml-auto text-xs font-semibold text-destructive underline underline-offset-2 flex-shrink-0"
+          >
+            Review Budgets →
+          </Link>
+        </div>
+      )}
 
       {/* Stats Grid */}
       {visible.kpis && (
