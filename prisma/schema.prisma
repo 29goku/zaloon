@@ -1,0 +1,174 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Salon {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  logo         String?
+  address      String?
+  city         String?
+  country      String   @default("US")
+  timezone     String   @default("UTC")
+  currency     String   @default("USD")
+  phone        String?
+  email        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users        User[]
+  staff        Staff[]
+  categories   ServiceCategory[]
+  services     Service[]
+  clients      Client[]
+  appointments Appointment[]
+  invoices     Invoice[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  salonId   String
+  name      String
+  email     String?
+  phone     String?
+  role      String   @default("RECEPTIONIST")
+  createdAt DateTime @default(now())
+
+  salon     Salon    @relation(fields: [salonId], references: [id])
+}
+
+model Staff {
+  id        String   @id @default(cuid())
+  salonId   String
+  name      String
+  phone     String?
+  avatar    String?
+  createdAt DateTime @default(now())
+
+  salon        Salon          @relation(fields: [salonId], references: [id])
+  shifts       Shift[]
+  appointments Appointment[]
+  services     StaffService[]
+}
+
+model Shift {
+  id        String @id @default(cuid())
+  staffId   String
+  dayOfWeek Int
+  startTime String
+  endTime   String
+
+  staff     Staff  @relation(fields: [staffId], references: [id])
+}
+
+model ServiceCategory {
+  id      String    @id @default(cuid())
+  salonId String
+  name    String
+  icon    String?
+
+  salon    Salon     @relation(fields: [salonId], references: [id])
+  services Service[]
+}
+
+model Service {
+  id           String   @id @default(cuid())
+  salonId      String
+  categoryId   String
+  name         String
+  durationMins Int      @default(30)
+  price        Float
+  createdAt    DateTime @default(now())
+
+  salon        Salon               @relation(fields: [salonId], references: [id])
+  category     ServiceCategory     @relation(fields: [categoryId], references: [id])
+  staff        StaffService[]
+  appointments AppointmentService[]
+}
+
+model StaffService {
+  staffId   String
+  serviceId String
+
+  staff   Staff   @relation(fields: [staffId], references: [id])
+  service Service @relation(fields: [serviceId], references: [id])
+
+  @@id([staffId, serviceId])
+}
+
+model Client {
+  id          String    @id @default(cuid())
+  salonId     String
+  name        String
+  phone       String?
+  email       String?
+  birthday    DateTime?
+  anniversary DateTime?
+  notes       String?
+  createdAt   DateTime  @default(now())
+
+  salon        Salon         @relation(fields: [salonId], references: [id])
+  appointments Appointment[]
+  ledger       LedgerEntry[]
+  invoices     Invoice[]
+}
+
+model LedgerEntry {
+  id        String   @id @default(cuid())
+  clientId  String
+  type      String
+  amount    Float
+  note      String?
+  createdAt DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id])
+}
+
+model Appointment {
+  id          String   @id @default(cuid())
+  salonId     String
+  clientId    String?
+  staffId     String
+  date        String
+  startTime   String
+  totalAmount Float    @default(0)
+  status      String   @default("SCHEDULED")
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  salon    Salon    @relation(fields: [salonId], references: [id])
+  client   Client?  @relation(fields: [clientId], references: [id])
+  staff    Staff    @relation(fields: [staffId], references: [id])
+  services AppointmentService[]
+  invoice  Invoice?
+}
+
+model AppointmentService {
+  appointmentId String
+  serviceId     String
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+  service     Service     @relation(fields: [serviceId], references: [id])
+
+  @@id([appointmentId, serviceId])
+}
+
+model Invoice {
+  id            String   @id @default(cuid())
+  salonId       String
+  clientId      String?
+  appointmentId String?  @unique
+  total         Float
+  paymentMethod String   @default("CASH")
+  status        String   @default("PAID")
+  createdAt     DateTime @default(now())
+
+  salon       Salon        @relation(fields: [salonId], references: [id])
+  client      Client?      @relation(fields: [clientId], references: [id])
+  appointment Appointment? @relation(fields: [appointmentId], references: [id])
+}
