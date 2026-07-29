@@ -1,26 +1,21 @@
 {
-  "name": "Zaloon - Salon Management",
+  "name": "Zaloon Salon Manager",
   "short_name": "Zaloon",
-  "description": "Modern salon management platform",
+  "description": "Professional salon management system",
   "start_url": "/dashboard",
   "display": "standalone",
-  "background_color": "#020502",
-  "theme_color": "#B4EFA5",
+  "background_color": "#0a0a0a",
+  "theme_color": "#F48E16",
   "orientation": "portrait-primary",
   "icons": [
-    {
-      "src": "/icon-192.svg",
-      "sizes": "192x192",
-      "type": "image/svg+xml",
-      "purpose": "maskable any"
-    },
-    {
-      "src": "/icon-512.svg",
-      "sizes": "512x512",
-      "type": "image/svg+xml",
-      "purpose": "maskable any"
-    }
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
-  "screenshots": [],
-  "categories": ["business", "productivity"]
+  "categories": ["business", "productivity"],
+  "shortcuts": [
+    { "name": "New Appointment", "url": "/dashboard/appointments?new=1", "description": "Book a new appointment" },
+    { "name": "Clients", "url": "/dashboard/clients", "description": "View all clients" },
+    { "name": "Today's Schedule", "url": "/dashboard/appointments", "description": "See today's schedule" }
+  ]
 }
