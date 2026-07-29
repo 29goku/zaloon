@@ -1337,7 +1337,7 @@ export default async function ClientDetailPage({
                 clientId={id}
                 clientPackages={clientPackages}
                 availablePackages={allPackages}
-                fmt={fmt}
+                currency={currency}
               />
             </TabsContent>
 

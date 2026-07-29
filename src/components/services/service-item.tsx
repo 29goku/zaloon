@@ -28,8 +28,7 @@ interface ServiceItemProps {
     price: number;
     durationMins: number;
   };
-  currency: string;
-  fmt: (n: number) => string;
+  currency?: string;
 }
 
 // ── Edit schema ────────────────────────────────────────────────────────────
@@ -44,7 +43,9 @@ type EditValues = z.infer<typeof editSchema>;
 
 // ── Component ──────────────────────────────────────────────────────────────
 
-export function ServiceItem({ service, fmt }: ServiceItemProps) {
+export function ServiceItem({ service, currency = "USD" }: ServiceItemProps) {
+  const fmt = (n: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
   const router = useRouter();
   const [editOpen, setEditOpen] = React.useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false);

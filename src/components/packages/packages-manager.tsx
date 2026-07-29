@@ -26,7 +26,7 @@ interface ServiceStub {
 interface PackagesManagerProps {
   packages: ServicePackage[];
   services: ServiceStub[];
-  fmt: (n: number) => string;
+  currency?: string;
 }
 
 interface PackageServiceEntry {
@@ -68,7 +68,9 @@ function calcSavingsPct(original: number, pkg: number): number {
   return Math.round(((original - pkg) / original) * 100);
 }
 
-export function PackagesManager({ packages, services, fmt }: PackagesManagerProps) {
+export function PackagesManager({ packages, services, currency = "USD" }: PackagesManagerProps) {
+  const fmt = (n: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ServicePackage | null>(null);

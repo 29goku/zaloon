@@ -44,18 +44,20 @@ interface AddonService {
 interface AddonsPageClientProps {
   addons: AddonService[];
   allCategories: { id: string; name: string; icon: string | null }[];
-  fmt: (n: number) => string;
+  currency?: string;
 }
 
 function AddonCard({
   addon,
   allCategories,
-  fmt,
+  currency = "USD",
 }: {
   addon: AddonService;
   allCategories: { id: string; name: string; icon: string | null }[];
-  fmt: (n: number) => string;
+  currency?: string;
 }) {
+  const fmt = (n: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
   const router = useRouter();
   const [editOpen, setEditOpen] = React.useState(false);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
@@ -220,7 +222,7 @@ function AddonCard({
   );
 }
 
-export function AddonsPageClient({ addons, allCategories, fmt }: AddonsPageClientProps) {
+export function AddonsPageClient({ addons, allCategories, currency = "USD" }: AddonsPageClientProps) {
   // Group by category for display
   const grouped = React.useMemo(() => {
     const map = new Map<string, { categoryName: string; categoryIcon: string | null; addons: AddonService[] }>();
@@ -287,7 +289,7 @@ export function AddonsPageClient({ addons, allCategories, fmt }: AddonsPageClien
                   key={addon.id}
                   addon={addon}
                   allCategories={allCategories}
-                  fmt={fmt}
+                  currency={currency}
                 />
               ))}
           </div>

@@ -122,7 +122,7 @@ export default async function AddonsPage() {
           </div>
         </div>
       ) : (
-        <AddonsPageClient addons={addons} allCategories={allCategoryStubs} fmt={fmt} />
+        <AddonsPageClient addons={addons} allCategories={allCategoryStubs} currency={currency} />
       )}
     </div>
   );

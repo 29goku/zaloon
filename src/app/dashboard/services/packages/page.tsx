@@ -34,7 +34,7 @@ export default async function PackagesPage() {
 
   return (
     <div className="p-4 md:p-8">
-      <PackagesManager packages={packages} services={services} fmt={fmt} />
+      <PackagesManager packages={packages} services={services} currency={currency} />
     </div>
   );
 }

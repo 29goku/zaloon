@@ -17,7 +17,7 @@ interface AppointmentListProps {
   clients: Client[];
   staff: Staff[];
   services: Service[];
-  fmt: (n: number) => string;
+  currency?: string;
 }
 
 const statusColor: Record<string, string> = {
@@ -32,8 +32,10 @@ export function AppointmentList({
   clients,
   staff,
   services,
-  fmt,
+  currency = "USD",
 }: AppointmentListProps) {
+  const fmt = (n: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
   const [selectedAppointment, setSelectedAppointment] =
     React.useState<AppointmentDetail | null>(null);
   const [sheetOpen, setSheetOpen] = React.useState(false);

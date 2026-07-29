@@ -305,7 +305,7 @@ export default async function InvoiceDetailPage({
             createdAt={invoice.createdAt.toISOString()}
             paidAt={invoice.paidAt ? invoice.paidAt.toISOString() : null}
             partialPayments={partialPayments}
-            fmt={fmt}
+            currency={currency}
           />
 
           {/* Notes */}

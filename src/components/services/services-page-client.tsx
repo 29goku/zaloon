@@ -60,7 +60,7 @@ export function ServicesPageClient({
           key={cat.id}
           category={cat}
           allCategories={allCategories}
-          fmt={fmt}
+          currency={currency}
           defaultOpen={index === 0}
           isFirst={index === 0}
           isLast={index === sorted.length - 1}

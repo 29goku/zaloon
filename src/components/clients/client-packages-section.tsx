@@ -19,15 +19,17 @@ interface ClientPackagesSectionProps {
   clientId: string;
   clientPackages: ClientPackage[];
   availablePackages: ServicePackage[];
-  fmt: (n: number) => string;
+  currency?: string;
 }
 
 export function ClientPackagesSection({
   clientId,
   clientPackages,
   availablePackages,
-  fmt,
+  currency = "USD",
 }: ClientPackagesSectionProps) {
+  const fmt = (n: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string>("");

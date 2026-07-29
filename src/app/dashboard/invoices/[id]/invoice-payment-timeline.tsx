@@ -20,7 +20,7 @@ interface Props {
   createdAt: string; // ISO string
   paidAt: string | null; // ISO string
   partialPayments: PartialPaymentEntry[];
-  fmt: (n: number) => string;
+  currency?: string;
 }
 
 export function InvoicePaymentTimeline({
@@ -30,8 +30,10 @@ export function InvoicePaymentTimeline({
   createdAt,
   paidAt,
   partialPayments,
-  fmt,
+  currency = "USD",
 }: Props) {
+  const fmt = (n: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
   const router = useRouter();
   const [showForm, setShowForm] = useState(false);
   const [amount, setAmount] = useState("");

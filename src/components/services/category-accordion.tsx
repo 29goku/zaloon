@@ -74,7 +74,7 @@ export type AccordionCategory = {
 export interface CategoryAccordionProps {
   category: AccordionCategory;
   allCategories: { id: string; name: string; icon: string | null }[];
-  fmt: (n: number) => string;
+  currency?: string;
   defaultOpen?: boolean;
   isFirst: boolean;
   isLast: boolean;
@@ -120,12 +120,14 @@ function StaffAvatars({ staff }: { staff: StaffMember[] }) {
 function ServiceRow({
   service,
   allCategories,
-  fmt,
+  currency = "USD",
 }: {
   service: AccordionService;
   allCategories: { id: string; name: string; icon: string | null }[];
-  fmt: (n: number) => string;
+  currency?: string;
 }) {
+  const fmt = (n: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
   const router = useRouter();
   const [editOpen, setEditOpen] = React.useState(false);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
@@ -332,7 +334,7 @@ function ServiceRow({
 export function CategoryAccordion({
   category,
   allCategories,
-  fmt,
+  currency = "USD",
   defaultOpen = true,
   isFirst,
   isLast,
@@ -544,7 +546,7 @@ export function CategoryAccordion({
                     key={service.id}
                     service={service}
                     allCategories={allCategories}
-                    fmt={fmt}
+                    currency={currency}
                   />
                 ))}
               </div>
