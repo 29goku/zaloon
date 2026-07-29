@@ -11,6 +11,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { reprioritizeWaitlist } from "@/app/actions/waitlist";
+import { KanbanCardActions } from "./kanban-card-actions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,7 +43,9 @@ interface KanbanColumnProps {
   totalWaiting: number;
   accentClass: string;
   headerBg: string;
-  actions?: (entry: KanbanEntry) => React.ReactNode;
+  services?: { id: string; name: string }[];
+  staff?: { id: string; name: string }[];
+  bookingLink?: string;
 }
 
 function formatWaitTimeLabel(createdAt: Date): string {
@@ -67,12 +70,16 @@ function KanbanCard({
   entry,
   isWaiting,
   totalWaiting,
-  actions,
+  services,
+  staff,
+  bookingLink,
 }: {
   entry: KanbanEntry;
   isWaiting: boolean;
   totalWaiting: number;
-  actions?: (entry: KanbanEntry) => React.ReactNode;
+  services?: { id: string; name: string }[];
+  staff?: { id: string; name: string }[];
+  bookingLink?: string;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -186,8 +193,16 @@ function KanbanCard({
       )}
 
       {/* Actions slot */}
-      {actions && (
-        <div className="pt-1 border-t border-border">{actions(entry)}</div>
+      {(services || staff) && (
+        <div className="pt-1 border-t border-border">
+          <KanbanCardActions
+            entry={entry}
+            services={services ?? []}
+            staff={staff ?? []}
+            totalWaiting={totalWaiting}
+            bookingLink={bookingLink}
+          />
+        </div>
       )}
     </div>
   );
@@ -200,7 +215,9 @@ function KanbanColumn({
   totalWaiting,
   accentClass,
   headerBg,
-  actions,
+  services,
+  staff,
+  bookingLink,
 }: KanbanColumnProps) {
   const isWaiting = status === "WAITING";
 
@@ -242,7 +259,9 @@ function KanbanColumn({
               entry={entry}
               isWaiting={isWaiting}
               totalWaiting={totalWaiting}
-              actions={actions}
+              services={services}
+              staff={staff}
+              bookingLink={bookingLink}
             />
           ))
         )}
@@ -256,7 +275,9 @@ function KanbanColumn({
 interface WaitlistKanbanProps {
   entries: KanbanEntry[];
   totalWaiting: number;
-  actions?: (entry: KanbanEntry) => React.ReactNode;
+  services?: { id: string; name: string }[];
+  staff?: { id: string; name: string }[];
+  bookingLink?: string;
 }
 
 const COLUMNS: {
@@ -291,7 +312,7 @@ const COLUMNS: {
   },
 ];
 
-export function WaitlistKanban({ entries, totalWaiting, actions }: WaitlistKanbanProps) {
+export function WaitlistKanban({ entries, totalWaiting, services, staff, bookingLink }: WaitlistKanbanProps) {
   const grouped = React.useMemo(() => {
     const map: Record<string, KanbanEntry[]> = {
       WAITING: [],
@@ -318,7 +339,9 @@ export function WaitlistKanban({ entries, totalWaiting, actions }: WaitlistKanba
           totalWaiting={totalWaiting}
           accentClass={col.accentClass}
           headerBg={col.headerBg}
-          actions={actions}
+          services={services}
+          staff={staff}
+          bookingLink={bookingLink}
         />
       ))}
     </div>

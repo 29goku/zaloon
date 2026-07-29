@@ -16,7 +16,7 @@ export function ServicesPageClient({
   currency = "USD",
 }: ServicesPageClientProps) {
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+    new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
   // Local order state for Up/Down reordering (persisted via reorderCategories)
   const [order, setOrder] = React.useState<string[]>(
     () => initialCategories.map((c) => c.id)

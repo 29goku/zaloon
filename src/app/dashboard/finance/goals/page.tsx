@@ -19,7 +19,7 @@ export default async function GoalsPage() {
   const salonId = salon?.id ?? "";
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,

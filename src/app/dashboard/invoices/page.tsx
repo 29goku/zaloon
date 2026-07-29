@@ -115,7 +115,7 @@ export default async function InvoicesPage({
   const invoicePrefix = salon?.invoicePrefix ?? "INV";
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,

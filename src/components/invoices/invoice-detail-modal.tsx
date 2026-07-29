@@ -136,7 +136,7 @@ interface Props {
 
 export function InvoiceDetailModal({ invoice, currency, onClose, onRefresh }: Props) {
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,

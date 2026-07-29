@@ -30,7 +30,7 @@ const BAR_COLORS = [
 
 export function RevenueByCategoryTable({ data, currency }: RevenueByCategoryTableProps) {
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,

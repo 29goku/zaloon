@@ -79,7 +79,7 @@ export function CheckoutDialog({
   const [invoiceId, setInvoiceId] = React.useState<string | null>(null);
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: appointment.currency,
       minimumFractionDigits: 0,

@@ -62,7 +62,7 @@ function ProfitabilityChart({
   const GRIDLINES = 5;
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       notation: "compact",
@@ -228,7 +228,7 @@ export function BreakevenCalculator({
   }, [inputs, hydrated]);
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,

@@ -21,7 +21,7 @@ interface TopServicesTableProps {
 
 export function TopServicesTable({ data, currency }: TopServicesTableProps) {
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,

@@ -68,7 +68,7 @@ export function RevenueGoalsForm({ initialGoals, currency }: GoalsFormProps) {
   const [isPending, startTransition] = useTransition();
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,
@@ -197,7 +197,7 @@ export function GoalsProgressSection({
   currency,
 }: ProgressSectionProps) {
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,

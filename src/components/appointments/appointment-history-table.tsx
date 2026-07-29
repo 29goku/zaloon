@@ -129,7 +129,7 @@ function StatCard({
 
 function StatsSidebar({ stats, currency }: { stats: HistoryStats; currency: string }) {
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", { style: "currency", currency, minimumFractionDigits: 0 }).format(n);
+    new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 0 }).format(n);
 
   return (
     <aside className="w-full lg:w-64 xl:w-72 shrink-0">
@@ -203,7 +203,7 @@ export function AppointmentHistoryTable({
   const [sortDir, setSortDir] = React.useState<SortDir>("desc");
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", { style: "currency", currency, minimumFractionDigits: 0 }).format(n);
+    new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 0 }).format(n);
 
   // ── Filter & sort ───────────────────────────────────────────────────────────
 

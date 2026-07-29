@@ -39,7 +39,7 @@ function StarRating({ rating }: { rating: number }) {
 
 export function StaffRatingsTable({ data, currency }: StaffRatingsTableProps) {
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,

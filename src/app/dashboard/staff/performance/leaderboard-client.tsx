@@ -217,7 +217,7 @@ export function LeaderboardClient({ staff, initialGoals, currency }: Leaderboard
   const [goalsOpen, setGoalsOpen] = useState(false);
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,

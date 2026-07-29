@@ -5,7 +5,7 @@ import { DollarSign, TrendingUp, Users, Percent } from "lucide-react";
 export const dynamic = "force-dynamic";
 
 function fmt(n: number) {
-  return new Intl.NumberFormat("en", {
+  return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 2,

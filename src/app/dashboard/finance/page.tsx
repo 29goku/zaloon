@@ -109,7 +109,7 @@ export default async function FinancePage({
   const salonId = salon?.id ?? "";
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,
@@ -1607,7 +1607,7 @@ function DailyCashFlowSvg({
             <g key={gi}>
               <line x1={PAD_L} y1={gy} x2={W - PAD_R} y2={gy} stroke="currentColor" strokeWidth="0.5" strokeDasharray="4 4" className="text-border" />
               <text x={PAD_L - 6} y={gy + 4} textAnchor="end" fontSize="9" className="fill-muted-foreground">
-                {new Intl.NumberFormat("en", { notation: "compact" }).format(v)}
+                {new Intl.NumberFormat("en-US", { notation: "compact" }).format(v)}
               </text>
             </g>
           );

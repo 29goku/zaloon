@@ -111,7 +111,7 @@ function LineChart({
     .join(" ");
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       notation: "compact",
@@ -259,7 +259,7 @@ export default async function ForecastPage() {
   const salonId = salon?.id ?? "";
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,

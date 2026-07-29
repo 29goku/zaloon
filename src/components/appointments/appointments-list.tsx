@@ -169,7 +169,7 @@ export function AppointmentsList({
   const [checkoutOpen, setCheckoutOpen] = React.useState(false);
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,

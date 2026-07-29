@@ -112,7 +112,7 @@ function exportToCSV(rows: InvoiceSummary[], filename: string) {
 
 function makeFmt(currency: string) {
   return (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,

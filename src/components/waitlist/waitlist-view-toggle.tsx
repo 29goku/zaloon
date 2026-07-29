@@ -13,14 +13,18 @@ interface WaitlistViewToggleProps {
   entries: KanbanEntry[];
   totalWaiting: number;
   tableContent: React.ReactNode;
-  kanbanActions?: (entry: KanbanEntry) => React.ReactNode;
+  services?: { id: string; name: string }[];
+  staff?: { id: string; name: string }[];
+  bookingLink?: string;
 }
 
 export function WaitlistViewToggle({
   entries,
   totalWaiting,
   tableContent,
-  kanbanActions,
+  services,
+  staff,
+  bookingLink,
 }: WaitlistViewToggleProps) {
   const [view, setView] = React.useState<"table" | "kanban">("table");
 
@@ -64,7 +68,9 @@ export function WaitlistViewToggle({
         <WaitlistKanban
           entries={entries}
           totalWaiting={totalWaiting}
-          actions={kanbanActions}
+          services={services}
+          staff={staff}
+          bookingLink={bookingLink}
         />
       )}
     </div>

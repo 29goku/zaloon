@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { AddWaitlistDialog } from "@/components/waitlist/add-waitlist-dialog";
 import { WaitlistActionButtons } from "./waitlist-actions";
 import { WaitlistViewToggle } from "@/components/waitlist/waitlist-view-toggle";
-import { KanbanCardActions } from "@/components/waitlist/kanban-card-actions";
 import type { KanbanEntry } from "@/components/waitlist/waitlist-kanban";
 import type { WaitlistStatus } from "@/app/actions/waitlist";
 
@@ -470,15 +469,9 @@ export default async function WaitlistPage({
         entries={kanbanEntries}
         totalWaiting={waitingCount}
         tableContent={tableContent}
-        kanbanActions={(entry: KanbanEntry) => (
-          <KanbanCardActions
-            entry={entry}
-            services={services}
-            staff={staff}
-            totalWaiting={waitingCount}
-            bookingLink={bookingLink}
-          />
-        )}
+        services={services}
+        staff={staff}
+        bookingLink={bookingLink}
       />
     </div>
   );

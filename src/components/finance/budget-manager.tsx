@@ -34,7 +34,7 @@ export function BudgetManager({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,

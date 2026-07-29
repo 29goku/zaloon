@@ -56,7 +56,7 @@ export function BudgetSettingsForm({
     });
   }
 
-  const currencySymbol = new Intl.NumberFormat("en", {
+  const currencySymbol = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency,
     minimumFractionDigits: 0,

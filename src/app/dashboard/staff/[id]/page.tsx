@@ -163,7 +163,7 @@ export default async function StaffDetailPage({
   const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const daysRemaining = daysInMonth - today.getDate();
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,

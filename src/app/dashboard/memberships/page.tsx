@@ -42,7 +42,7 @@ export default async function MembershipsPage() {
   const salon = await prisma.salon.findFirst();
   const currency = salon?.currency ?? "USD";
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,

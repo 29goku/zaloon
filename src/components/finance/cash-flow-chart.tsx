@@ -30,7 +30,7 @@ export function CashFlowChart({ data, currency }: CashFlowChartProps) {
   const [tooltipIdx, setTooltipIdx] = useState<number | null>(null);
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,
@@ -150,7 +150,7 @@ export function CashFlowChart({ data, currency }: CashFlowChartProps) {
                     fontSize="9"
                     className="fill-muted-foreground"
                   >
-                    {new Intl.NumberFormat("en", {
+                    {new Intl.NumberFormat("en-US", {
                       style: "currency",
                       currency,
                       notation: "compact",

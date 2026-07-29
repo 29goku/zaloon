@@ -16,7 +16,7 @@ interface TopServicesChartProps {
 
 export function TopServicesChart({ data, currency }: TopServicesChartProps) {
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en", {
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
       minimumFractionDigits: 0,
