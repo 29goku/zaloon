@@ -359,7 +359,6 @@ export default async function InvoicesPage({
           ) : (
             <InvoicesClient
               invoices={invoiceSummaries}
-              fmt={fmt}
               currency={currency}
               allInvoices={invoiceSummaries}
             />

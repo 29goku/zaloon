@@ -110,13 +110,23 @@ function exportToCSV(rows: InvoiceSummary[], filename: string) {
 
 // ─── Revenue chart ────────────────────────────────────────────────────────────
 
+function makeFmt(currency: string) {
+  return (n: number) =>
+    new Intl.NumberFormat("en", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 0,
+    }).format(n);
+}
+
 function RevenueChart({
   invoices,
-  fmt,
+  currency,
 }: {
   invoices: InvoiceSummary[];
-  fmt: (n: number) => string;
+  currency: string;
 }) {
+  const fmt = makeFmt(currency);
   const days = 14;
   const now = new Date();
   const buckets: { label: string; amount: number }[] = [];
@@ -172,13 +182,14 @@ function RevenueChart({
 
 function AgingReport({
   invoices,
-  fmt,
+  currency,
   onMarkPaid,
 }: {
   invoices: InvoiceSummary[];
-  fmt: (n: number) => string;
+  currency: string;
   onMarkPaid: (id: string) => void;
 }) {
+  const fmt = makeFmt(currency);
   const unpaid = invoices.filter((i) => i.status === "PENDING" || i.status === "PARTIAL");
   const grouped: Record<string, InvoiceSummary[]> = {
     current: [],
@@ -297,11 +308,11 @@ function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; s
 interface Props {
   invoices: InvoiceSummary[];
   allInvoices: InvoiceSummary[];
-  fmt: (n: number) => string;
   currency: string;
 }
 
-export function InvoicesClient({ invoices, allInvoices, fmt, currency }: Props) {
+export function InvoicesClient({ invoices, allInvoices, currency }: Props) {
+  const fmt = makeFmt(currency);
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"all" | "aging" | "chart">("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -451,13 +462,13 @@ export function InvoicesClient({ invoices, allInvoices, fmt, currency }: Props) 
 
       {/* Aging tab */}
       {activeTab === "aging" && (
-        <AgingReport invoices={invoices} fmt={fmt} onMarkPaid={handleMarkPaid} />
+        <AgingReport invoices={invoices} currency={currency} onMarkPaid={handleMarkPaid} />
       )}
 
       {/* Revenue chart tab */}
       {activeTab === "chart" && (
         <div className="rounded-xl border border-border bg-card p-6">
-          <RevenueChart invoices={invoices} fmt={fmt} />
+          <RevenueChart invoices={invoices} currency={currency} />
         </div>
       )}
 
@@ -692,7 +703,7 @@ export function InvoicesClient({ invoices, allInvoices, fmt, currency }: Props) 
       {selectedInvoice && (
         <InvoiceDetailModal
           invoice={selectedInvoice}
-          fmt={fmt}
+          currency={currency}
           onClose={() => setSelectedInvoice(null)}
           onRefresh={() => router.refresh()}
         />
