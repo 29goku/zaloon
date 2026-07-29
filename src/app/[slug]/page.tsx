@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
+import { parseReviewContent } from "@/lib/review-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -144,7 +145,7 @@ export default async function SalonPage({ params }: PageProps) {
       },
       Review: {
         where: { isPublic: true },
-        orderBy: { createdAt: "desc" },
+        orderBy: { rating: "desc" },
         take: 6,
         select: {
           id: true,
@@ -152,6 +153,7 @@ export default async function SalonPage({ params }: PageProps) {
           comment: true,
           createdAt: true,
           Client: { select: { name: true } },
+          Staff: { select: { name: true } },
         },
       },
     },
@@ -389,24 +391,47 @@ export default async function SalonPage({ params }: PageProps) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {allReviews.map((review) => {
-              const firstName = review.Client?.name?.split(" ")[0] ?? "Guest";
+              const clientName = review.Client?.name ?? "Guest";
+              const nameParts = clientName.split(" ");
+              const displayName =
+                nameParts.length > 1
+                  ? `${nameParts[0]} ${nameParts[nameParts.length - 1]!.charAt(0)}.`
+                  : nameParts[0] ?? "Guest";
               const dateStr = new Date(review.createdAt).toLocaleDateString("en-US", {
                 month: "short",
                 year: "numeric",
               });
+              const { clientComment, salonResponse } = parseReviewContent(review.comment);
+              const excerpt =
+                clientComment && clientComment.length > 100
+                  ? clientComment.slice(0, 100) + "…"
+                  : clientComment;
               return (
                 <div
                   key={review.id}
                   className="flex flex-col gap-3 p-5 rounded-2xl border border-gray-100 shadow-sm bg-white hover:shadow-md transition-shadow"
                 >
                   <StarRating rating={review.rating} size="sm" />
-                  {review.comment && (
-                    <p className="text-gray-700 text-sm leading-relaxed line-clamp-4">
-                      &ldquo;{review.comment}&rdquo;
+                  {excerpt && (
+                    <p className="text-gray-700 text-sm leading-relaxed flex-1">
+                      &ldquo;{excerpt}&rdquo;
                     </p>
                   )}
+                  {salonResponse && (
+                    <div className="pl-3 border-l-2 border-amber-200 bg-amber-50 rounded-r-lg p-2">
+                      <p className="text-xs font-semibold text-amber-700 mb-0.5">Owner</p>
+                      <p className="text-xs text-gray-600 leading-relaxed line-clamp-3">
+                        {salonResponse}
+                      </p>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-50">
-                    <span className="text-sm font-semibold text-gray-800">{firstName}</span>
+                    <div>
+                      <span className="text-sm font-semibold text-gray-800">{displayName}</span>
+                      {review.Staff?.name && (
+                        <p className="text-xs text-gray-400 mt-0.5">with {review.Staff.name}</p>
+                      )}
+                    </div>
                     <span className="text-xs text-gray-400">{dateStr}</span>
                   </div>
                 </div>

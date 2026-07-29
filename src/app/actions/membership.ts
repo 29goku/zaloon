@@ -1,4 +1,11 @@
 "use server";
 
-// Re-export from memberships.ts for the task-specified path
-export { assignMembership, cancelMembership } from "./memberships";
+import { assignMembership as _assignMembership, cancelMembership as _cancelMembership } from "./memberships";
+
+export async function assignMembership(...args: Parameters<typeof _assignMembership>) {
+  return _assignMembership(...args);
+}
+
+export async function cancelMembership(...args: Parameters<typeof _cancelMembership>) {
+  return _cancelMembership(...args);
+}

@@ -25,7 +25,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createInventoryItem, updateInventoryItem, RETAIL_CATEGORY } from "@/app/actions/inventory";
+import { createInventoryItem, updateInventoryItem } from "@/app/actions/inventory";
+import { RETAIL_CATEGORY } from "@/lib/inventory-types";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 

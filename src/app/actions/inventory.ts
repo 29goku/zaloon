@@ -3,28 +3,8 @@
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
-
-// ── Schema upgrade note ────────────────────────────────────────────────────────
-// When ready, add these fields to prisma/schema.prisma InventoryItem model and
-// run `npx prisma db push` (with user consent):
-//   retailPrice Float?
-//   isRetail    Boolean @default(false)
-//   barcode     String?
-//
-// Until then:
-//   - isRetail  → category starts with "RETAIL_" prefix (category === "RETAIL" also counts)
-//   - retailPrice → salePrice field (labeled "Retail Price" in UI)
-//   - barcode   → stored in sku field (labeled "SKU / Barcode" in UI)
-// ──────────────────────────────────────────────────────────────────────────────
-
-// ── Constants ──────────────────────────────────────────────────────────────────
-
-export const RETAIL_CATEGORY = "RETAIL";
-export const RETAIL_CATEGORY_PREFIX = "RETAIL_";
-
-export function isRetailItem(category: string): boolean {
-  return category === RETAIL_CATEGORY || category.startsWith(RETAIL_CATEGORY_PREFIX);
-}
+import type { PurchaseOrder } from "@/lib/inventory-types";
+import { RETAIL_CATEGORY } from "@/lib/inventory-types";
 
 const CATEGORIES = [
   "HAIR_PRODUCTS",
@@ -500,25 +480,7 @@ export async function getProductSalesHistory(itemId: string) {
   }
 }
 
-// ── Purchase Orders (stored in Salon.businessHours JSON under __purchaseOrders) ──
-
-export interface PurchaseOrderItem {
-  inventoryItemId: string;
-  name: string;
-  qty: number;
-  unitCost: number;
-}
-
-export interface PurchaseOrder {
-  id: string;
-  supplier: string;
-  items: PurchaseOrderItem[];
-  total: number;
-  status: "PENDING" | "RECEIVED" | "CANCELLED";
-  orderedAt: string;
-  receivedAt?: string;
-  notes?: string;
-}
+// ── Purchase Orders ────────────────────────────────────────────────────────────
 
 async function getSalonWithOrders() {
   const salon = await prisma.salon.findFirst();
@@ -662,5 +624,157 @@ export async function cancelPurchaseOrder(
   } catch (err) {
     console.error("[cancelPurchaseOrder]", err);
     return { success: false, error: "Failed to cancel purchase order" };
+  }
+}
+
+// ── createRetailSale ──────────────────────────────────────────────────────────
+// Creates InventoryTransaction records (type="OUT", negative quantity),
+// creates an Invoice with InvoiceItem records, and decrements stock quantities.
+
+export async function createRetailSale(
+  items: { itemId: string; qty: number; price: number }[],
+  paymentMethod: string
+): Promise<{ success: boolean; invoiceId?: string; error?: string }> {
+  if (!items || items.length === 0)
+    return { success: false, error: "No items provided" };
+
+  try {
+    const salon = await prisma.salon.findFirst();
+    if (!salon) return { success: false, error: "No salon found" };
+
+    // Validate all items exist and have sufficient stock
+    const inventoryItems = await prisma.inventoryItem.findMany({
+      where: { id: { in: items.map((i) => i.itemId) } },
+    });
+
+    for (const saleItem of items) {
+      const inv = inventoryItems.find((i) => i.id === saleItem.itemId);
+      if (!inv) return { success: false, error: `Item not found: ${saleItem.itemId}` };
+      if (inv.quantity < saleItem.qty)
+        return {
+          success: false,
+          error: `Insufficient stock for ${inv.name}: ${inv.quantity} available`,
+        };
+    }
+
+    const total = items.reduce((sum, i) => sum + i.price * i.qty, 0);
+    const invoiceId = randomUUID();
+
+    // Create invoice
+    const invoiceOp = prisma.invoice.create({
+      data: {
+        id: invoiceId,
+        salonId: salon.id,
+        total,
+        paymentMethod: paymentMethod.toUpperCase(),
+        status: "PAID",
+        paidAt: new Date(),
+        note: "Retail POS sale",
+      },
+    });
+
+    // Create invoice items
+    const invoiceItemOps = items.map((saleItem) => {
+      const inv = inventoryItems.find((i) => i.id === saleItem.itemId)!;
+      return prisma.invoiceItem.create({
+        data: {
+          id: randomUUID(),
+          invoiceId,
+          name: inv.name,
+          price: saleItem.price,
+          qty: saleItem.qty,
+        },
+      });
+    });
+
+    // Create inventory transactions and update quantities
+    const txOps = items.flatMap((saleItem) => {
+      const inv = inventoryItems.find((i) => i.id === saleItem.itemId)!;
+      return [
+        prisma.inventoryTransaction.create({
+          data: {
+            id: randomUUID(),
+            itemId: saleItem.itemId,
+            type: "OUT",
+            quantity: -saleItem.qty,
+            note: `SALE|invoice:${invoiceId}`,
+          },
+        }),
+        prisma.inventoryItem.update({
+          where: { id: saleItem.itemId },
+          data: { quantity: Math.max(0, inv.quantity - saleItem.qty) },
+        }),
+      ];
+    });
+
+    await prisma.$transaction([invoiceOp, ...invoiceItemOps, ...txOps]);
+
+    return { success: true, invoiceId };
+  } catch (err) {
+    console.error("[createRetailSale]", err);
+    return { success: false, error: "Failed to create retail sale" };
+  }
+}
+
+// ── bulkRestock ───────────────────────────────────────────────────────────────
+// Creates InventoryTransaction records (type="IN") and increments quantities.
+
+export async function bulkRestock(
+  items: { itemId: string; qty: number; note?: string }[]
+): Promise<{ success: boolean; updated: number; error?: string }> {
+  if (!items || items.length === 0)
+    return { success: false, updated: 0, error: "No items provided" };
+
+  const validItems = items.filter((i) => i.qty > 0);
+  if (validItems.length === 0)
+    return { success: false, updated: 0, error: "All quantities are zero" };
+
+  try {
+    const inventoryItems = await prisma.inventoryItem.findMany({
+      where: { id: { in: validItems.map((i) => i.itemId) } },
+    });
+
+    const ops = validItems.flatMap((restockItem) => {
+      const inv = inventoryItems.find((i) => i.id === restockItem.itemId);
+      if (!inv) return [];
+      return [
+        prisma.inventoryTransaction.create({
+          data: {
+            id: randomUUID(),
+            itemId: restockItem.itemId,
+            type: "IN",
+            quantity: restockItem.qty,
+            note: restockItem.note ?? "Bulk restock",
+          },
+        }),
+        prisma.inventoryItem.update({
+          where: { id: restockItem.itemId },
+          data: { quantity: inv.quantity + restockItem.qty },
+        }),
+      ];
+    });
+
+    await prisma.$transaction(ops);
+
+    return { success: true, updated: validItems.length };
+  } catch (err) {
+    console.error("[bulkRestock]", err);
+    return { success: false, updated: 0, error: "Failed to restock items" };
+  }
+}
+
+// ── getItemTransactionHistory ─────────────────────────────────────────────────
+// Returns the last N transactions for an item.
+
+export async function getItemTransactionHistory(itemId: string, take = 10) {
+  try {
+    return await prisma.inventoryTransaction.findMany({
+      where: { itemId },
+      orderBy: { createdAt: "desc" },
+      take,
+    });
+  } catch (err) {
+    console.error("[getItemTransactionHistory]", err);
+    return [];
   }
 }

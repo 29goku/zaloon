@@ -4,6 +4,8 @@ import { z } from "zod";
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { parseReviewContent, RESPONSE_SEPARATOR, FLAGGED_MARKER } from "@/lib/review-utils";
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -177,4 +179,89 @@ export async function getRatingDistribution(): Promise<Record<number, number>> {
     dist[row.rating] = row._count.rating;
   }
   return dist;
+}
+
+// ─── respondToReview ──────────────────────────────────────────────────────────
+
+export async function respondToReview(
+  reviewId: string,
+  response: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  if (!reviewId) return { success: false, error: "Missing review id" };
+  if (!response?.trim()) return { success: false, error: "Response cannot be empty" };
+
+  try {
+    const review = await prisma.review.findUnique({ where: { id: reviewId } });
+    if (!review) return { success: false, error: "Review not found" };
+
+    const { clientComment, isFlagged } = parseReviewContent(review.comment);
+    const baseComment = clientComment ?? "";
+    const flagPart = isFlagged ? `\n${FLAGGED_MARKER}` : "";
+
+    const newComment = `${baseComment}${RESPONSE_SEPARATOR}${response.trim()}${flagPart}`;
+
+    await prisma.review.update({
+      where: { id: reviewId },
+      data: { comment: newComment },
+    });
+
+    revalidatePath("/dashboard/reviews");
+    return { success: true };
+  } catch (err) {
+    console.error("[respondToReview]", err);
+    return { success: false, error: "Failed to save response" };
+  }
+}
+
+// ─── updateReviewVisibility ───────────────────────────────────────────────────
+
+export async function updateReviewVisibility(
+  reviewId: string,
+  isPublic: boolean
+): Promise<{ success: true } | { success: false; error: string }> {
+  if (!reviewId) return { success: false, error: "Missing review id" };
+
+  try {
+    await prisma.review.update({
+      where: { id: reviewId },
+      data: { isPublic },
+    });
+    revalidatePath("/dashboard/reviews");
+    return { success: true };
+  } catch (err) {
+    console.error("[updateReviewVisibility]", err);
+    return { success: false, error: "Failed to update visibility" };
+  }
+}
+
+// ─── flagReview ───────────────────────────────────────────────────────────────
+
+export async function flagReview(
+  reviewId: string,
+  reason: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  if (!reviewId) return { success: false, error: "Missing review id" };
+
+  try {
+    const review = await prisma.review.findUnique({ where: { id: reviewId } });
+    if (!review) return { success: false, error: "Review not found" };
+
+    const base = review.comment ?? "";
+    // Avoid double-flagging
+    if (base.includes(FLAGGED_MARKER)) {
+      return { success: true };
+    }
+
+    const newComment = `${base}\n${FLAGGED_MARKER}${reason.trim()}`;
+    await prisma.review.update({
+      where: { id: reviewId },
+      data: { comment: newComment },
+    });
+
+    revalidatePath("/dashboard/reviews");
+    return { success: true };
+  } catch (err) {
+    console.error("[flagReview]", err);
+    return { success: false, error: "Failed to flag review" };
+  }
 }

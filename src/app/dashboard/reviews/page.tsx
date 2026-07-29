@@ -1,8 +1,8 @@
 import { prisma } from "@/lib/prisma";
-import { Star, Users, ThumbsUp } from "lucide-react";
+import { Star, Users, TrendingUp, MessageSquare } from "lucide-react";
 import Link from "next/link";
-import { DeleteReviewButton, CopyReviewLink } from "./review-actions";
-import { getAverageRating, getRatingDistribution } from "@/app/actions/reviews";
+import { DeleteReviewButton, CopyReviewLink, ReviewResponseButton, VisibilityToggle } from "./review-actions";
+import { parseReviewContent } from "@/lib/review-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -12,14 +12,17 @@ function StarRow({ rating }: { rating: number }) {
   return (
     <span className="flex items-center gap-0.5" aria-label={`${rating} out of 5 stars`}>
       {[1, 2, 3, 4, 5].map((i) => (
-        <Star
+        <svg
           key={i}
-          className={
+          viewBox="0 0 24 24"
+          className={`w-3.5 h-3.5 ${
             i <= rating
-              ? "w-3.5 h-3.5 text-amber-400 fill-amber-400"
-              : "w-3.5 h-3.5 text-muted-foreground/30"
-          }
-        />
+              ? "text-amber-400 fill-amber-400"
+              : "text-muted-foreground/20 fill-muted-foreground/20"
+          }`}
+        >
+          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+        </svg>
       ))}
     </span>
   );
@@ -29,25 +32,17 @@ function formatDate(d: Date) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-/** Try to parse a stored comment as JSON survey payload; fall back to plain text. */
-function parseComment(raw: string | null): { text?: string; wouldRecommend?: boolean } {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    if (typeof parsed === "object" && parsed !== null) return parsed as { text?: string; wouldRecommend?: boolean };
-  } catch {
-    // not JSON — plain text
-  }
-  return { text: raw };
-}
+const REVIEWS_PER_PAGE = 10;
 
 // ─── Page props ───────────────────────────────────────────────────────────────
 
 interface PageProps {
   searchParams: Promise<{
     staffId?: string;
-    minRating?: string;
     tab?: string;
+    filter?: string;
+    sort?: string;
+    page?: string;
   }>;
 }
 
@@ -56,109 +51,80 @@ interface PageProps {
 export default async function ReviewsPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const staffIdFilter = params.staffId ?? undefined;
-  const minRatingFilter = params.minRating ? parseInt(params.minRating) : undefined;
   const activeTab = params.tab === "staff" ? "staff" : "reviews";
+  const filterMode = params.filter ?? "all";
+  const sortMode = params.sort ?? "newest";
+  const currentPage = Math.max(1, parseInt(params.page ?? "1"));
 
   const salon = await prisma.salon.findFirst({ select: { slug: true } });
   const salonSlug = salon?.slug ?? "";
 
-  const [reviews, average, distribution, staffList, unreviewedAppointments] = await Promise.all([
+  // ── Parallel data fetches ──────────────────────────────────────────────────
+  const [allReviewsRaw, staffList] = await Promise.all([
     prisma.review.findMany({
-      where: {
-        ...(staffIdFilter ? { staffId: staffIdFilter } : {}),
-        ...(minRatingFilter ? { rating: { gte: minRatingFilter } } : {}),
-      },
       orderBy: { createdAt: "desc" },
       include: {
         Client: { select: { id: true, name: true } },
         Staff: { select: { id: true, name: true } },
       },
     }),
-    getAverageRating(staffIdFilter),
-    getRatingDistribution(),
     prisma.staff.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    prisma.appointment.findMany({
-      where: { status: "COMPLETED", Review: { is: null } },
-      take: 20,
-      orderBy: { date: "desc" },
-      include: { Client: { select: { id: true, name: true } } },
-    }),
   ]);
 
-  const totalReviews = Object.values(distribution).reduce((a, b) => a + b, 0);
+  // ── Enrich reviews with parsed content ────────────────────────────────────
+  const allReviews = allReviewsRaw.map((r) => ({
+    ...r,
+    parsed: parseReviewContent(r.comment),
+  }));
 
-  // ─── Compute "would recommend" rate ────────────────────────────────────────
-  const withRecommendData = reviews.filter((r) => {
-    if (!r.comment) return false;
-    try {
-      const p = JSON.parse(r.comment);
-      return typeof p === "object" && p !== null && "wouldRecommend" in p;
-    } catch {
-      return false;
-    }
-  });
+  const totalReviews = allReviews.length;
 
-  const recommendYesCount = withRecommendData.filter((r) => {
-    try {
-      return (JSON.parse(r.comment!) as { wouldRecommend?: boolean }).wouldRecommend === true;
-    } catch {
-      return false;
-    }
-  }).length;
+  // ── Stats ─────────────────────────────────────────────────────────────────
+  const avgRating =
+    totalReviews > 0
+      ? allReviews.reduce((sum, r) => sum + r.rating, 0) / totalReviews
+      : null;
 
-  const recommendPct =
-    withRecommendData.length > 0
-      ? Math.round((recommendYesCount / withRecommendData.length) * 100)
-      : null; // null = no survey data yet
+  const now = new Date();
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const reviewsThisMonth = allReviews.filter((r) => new Date(r.createdAt) >= firstOfMonth).length;
 
-  // ─── Staff performance data ─────────────────────────────────────────────────
-  const allStaffReviews = await prisma.review.findMany({
-    where: { staffId: { not: null } },
-    select: { staffId: true, rating: true, comment: true },
-  });
+  const reviewsWithResponse = allReviews.filter((r) => r.parsed.salonResponse !== null).length;
+  const responseRate =
+    totalReviews > 0 ? Math.round((reviewsWithResponse / totalReviews) * 100) : 0;
 
+  // ── Rating distribution ───────────────────────────────────────────────────
+  const distribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  for (const r of allReviews) {
+    distribution[r.rating] = (distribution[r.rating] ?? 0) + 1;
+  }
+  const maxDistCount = Math.max(...Object.values(distribution), 1);
+
+  // ── Staff performance data ────────────────────────────────────────────────
   type StaffRow = {
     id: string;
     name: string;
     avgRating: number | null;
     reviewCount: number;
-    recommendPct: number | null;
+    lastReviewDate: Date | null;
   };
 
   const staffPerformance: StaffRow[] = staffList.map((staff) => {
-    const staffRevs = allStaffReviews.filter((r) => r.staffId === staff.id);
-    const avgRating =
+    const staffRevs = allReviews.filter((r) => r.staffId === staff.id);
+    const avgR =
       staffRevs.length > 0
         ? staffRevs.reduce((sum, r) => sum + r.rating, 0) / staffRevs.length
         : null;
-
-    const withRec = staffRevs.filter((r) => {
-      if (!r.comment) return false;
-      try {
-        const p = JSON.parse(r.comment);
-        return typeof p === "object" && p !== null && "wouldRecommend" in p;
-      } catch {
-        return false;
-      }
-    });
-    const recYes = withRec.filter((r) => {
-      try {
-        return (JSON.parse(r.comment!) as { wouldRecommend?: boolean }).wouldRecommend === true;
-      } catch {
-        return false;
-      }
-    }).length;
-
-    return {
-      id: staff.id,
-      name: staff.name,
-      avgRating,
-      reviewCount: staffRevs.length,
-      recommendPct: withRec.length > 0 ? Math.round((recYes / withRec.length) * 100) : null,
-    };
+    const lastReviewDate =
+      staffRevs.length > 0
+        ? staffRevs.reduce<Date | null>((latest, r) => {
+            const d = new Date(r.createdAt);
+            return !latest || d > latest ? d : latest;
+          }, null)
+        : null;
+    return { id: staff.id, name: staff.name, avgRating: avgR, reviewCount: staffRevs.length, lastReviewDate };
   });
 
-  // Sort staff by avgRating desc (nulls last)
   staffPerformance.sort((a, b) => {
     if (a.avgRating === null && b.avgRating === null) return 0;
     if (a.avgRating === null) return 1;
@@ -166,16 +132,72 @@ export default async function ReviewsPage({ searchParams }: PageProps) {
     return b.avgRating - a.avgRating;
   });
 
-  // ─── Build tab URLs ─────────────────────────────────────────────────────────
+  // ── Pending responses ─────────────────────────────────────────────────────
+  const pendingResponses = allReviews
+    .filter((r) => r.parsed.salonResponse === null && !r.parsed.isFlagged)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  // ── All reviews with filter + sort + pagination ───────────────────────────
+  let filteredReviews = [...allReviews];
+
+  if (staffIdFilter) {
+    filteredReviews = filteredReviews.filter((r) => r.staffId === staffIdFilter);
+  }
+
+  switch (filterMode) {
+    case "5":
+      filteredReviews = filteredReviews.filter((r) => r.rating === 5);
+      break;
+    case "4":
+      filteredReviews = filteredReviews.filter((r) => r.rating === 4);
+      break;
+    case "3":
+      filteredReviews = filteredReviews.filter((r) => r.rating === 3);
+      break;
+    case "low":
+      filteredReviews = filteredReviews.filter((r) => r.rating <= 2);
+      break;
+    case "no-response":
+      filteredReviews = filteredReviews.filter((r) => r.parsed.salonResponse === null);
+      break;
+  }
+
+  switch (sortMode) {
+    case "oldest":
+      filteredReviews.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      break;
+    case "rating-high":
+      filteredReviews.sort((a, b) => b.rating - a.rating);
+      break;
+    case "rating-low":
+      filteredReviews.sort((a, b) => a.rating - b.rating);
+      break;
+    default: // newest
+      filteredReviews.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  const totalPages = Math.max(1, Math.ceil(filteredReviews.length / REVIEWS_PER_PAGE));
+  const paginatedReviews = filteredReviews.slice(
+    (currentPage - 1) * REVIEWS_PER_PAGE,
+    currentPage * REVIEWS_PER_PAGE
+  );
+
+  // ── URL builder ───────────────────────────────────────────────────────────
   function buildUrl(newParams: Record<string, string | undefined>) {
-    const merged = {
-      ...(staffIdFilter ? { staffId: staffIdFilter } : {}),
-      ...(minRatingFilter ? { minRating: String(minRatingFilter) } : {}),
-      ...(activeTab === "staff" ? { tab: "staff" } : {}),
-      ...newParams,
-    };
-    const cleaned = Object.entries(merged).filter(([, v]) => v !== undefined && v !== "");
-    const qs = new URLSearchParams(cleaned as [string, string][]).toString();
+    const merged: Record<string, string> = {};
+    if (staffIdFilter) merged.staffId = staffIdFilter;
+    if (activeTab === "staff") merged.tab = "staff";
+    if (filterMode !== "all") merged.filter = filterMode;
+    if (sortMode !== "newest") merged.sort = sortMode;
+    if (currentPage > 1) merged.page = String(currentPage);
+    Object.entries(newParams).forEach(([k, v]) => {
+      if (v === undefined || v === "") {
+        delete merged[k];
+      } else {
+        merged[k] = v;
+      }
+    });
+    const qs = new URLSearchParams(merged).toString();
     return `/dashboard/reviews${qs ? `?${qs}` : ""}`;
   }
 
@@ -184,70 +206,119 @@ export default async function ReviewsPage({ searchParams }: PageProps) {
       {/* ─── Header ──────────────────────────────────────────────────────────── */}
       <div>
         <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-          <Star className="w-6 h-6 text-primary fill-primary" />
+          <Star className="w-6 h-6 text-amber-400 fill-amber-400" />
           Reviews
         </h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Client ratings and feedback for your salon
+          Manage client feedback and respond to reviews
         </p>
       </div>
 
       {/* ─── Stats row ────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {/* Average rating */}
-        <div className="rounded-2xl border border-border bg-card p-5 flex items-center gap-4">
-          <div className="flex-shrink-0 flex flex-col items-center justify-center w-16 h-16 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800">
-            <span className="text-2xl font-bold text-amber-500 leading-none">
-              {average !== null ? average.toFixed(1) : "—"}
+        <div className="rounded-2xl border border-border bg-card p-5 flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-muted-foreground text-xs font-medium">
+            <Star className="w-3.5 h-3.5" />
+            Average Rating
+          </div>
+          <div className="flex items-end gap-2">
+            <span className="text-3xl font-bold text-foreground leading-none">
+              {avgRating !== null ? avgRating.toFixed(1) : "—"}
             </span>
-            <Star className="w-4 h-4 text-amber-400 fill-amber-400 mt-0.5" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-foreground">Average Rating</p>
-            <p className="text-xs text-muted-foreground">
-              {totalReviews} review{totalReviews !== 1 ? "s" : ""}
-            </p>
-          </div>
-        </div>
-
-        {/* Would recommend */}
-        <div className="rounded-2xl border border-border bg-card p-5 flex items-center gap-4">
-          <div className="flex-shrink-0 flex flex-col items-center justify-center w-16 h-16 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800">
-            <ThumbsUp className="w-6 h-6 text-emerald-500" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-foreground">
-              {recommendPct !== null ? `${recommendPct}%` : "—"}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {recommendPct !== null
-                ? "Would recommend"
-                : "No survey data yet"}
-            </p>
+            <div className="flex gap-0.5 mb-0.5">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <svg
+                  key={i}
+                  viewBox="0 0 24 24"
+                  className={`w-3.5 h-3.5 ${
+                    avgRating !== null && i <= Math.round(avgRating)
+                      ? "text-amber-400 fill-amber-400"
+                      : "text-muted-foreground/20 fill-muted-foreground/20"
+                  }`}
+                >
+                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                </svg>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* Pending reviews */}
-        <div className="rounded-2xl border border-border bg-card p-5 flex items-center gap-4">
-          <div className="flex-shrink-0 flex flex-col items-center justify-center w-16 h-16 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800">
-            <Users className="w-6 h-6 text-blue-500" />
+        {/* Total reviews */}
+        <div className="rounded-2xl border border-border bg-card p-5 flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-muted-foreground text-xs font-medium">
+            <Users className="w-3.5 h-3.5" />
+            Total Reviews
           </div>
-          <div>
-            <p className="text-sm font-semibold text-foreground">
-              {unreviewedAppointments.length}
-            </p>
-            <p className="text-xs text-muted-foreground">Awaiting review</p>
+          <span className="text-3xl font-bold text-foreground leading-none">{totalReviews}</span>
+        </div>
+
+        {/* This month */}
+        <div className="rounded-2xl border border-border bg-card p-5 flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-muted-foreground text-xs font-medium">
+            <TrendingUp className="w-3.5 h-3.5" />
+            This Month
+          </div>
+          <span className="text-3xl font-bold text-foreground leading-none">{reviewsThisMonth}</span>
+        </div>
+
+        {/* Response rate */}
+        <div className="rounded-2xl border border-border bg-card p-5 flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-muted-foreground text-xs font-medium">
+            <MessageSquare className="w-3.5 h-3.5" />
+            Response Rate
+          </div>
+          <div className="flex items-end gap-1.5">
+            <span className="text-3xl font-bold text-foreground leading-none">{responseRate}%</span>
+            <span className="text-xs text-muted-foreground mb-0.5">
+              ({reviewsWithResponse}/{totalReviews})
+            </span>
           </div>
         </div>
       </div>
 
+      {/* ─── Rating Distribution (pure SVG bars) ─────────────────────────── */}
+      <div className="rounded-2xl border border-border bg-card p-5">
+        <p className="text-sm font-semibold text-foreground mb-4">Rating Distribution</p>
+        <div className="space-y-2.5">
+          {[5, 4, 3, 2, 1].map((star) => {
+            const count = distribution[star] ?? 0;
+            const barWidthPct = maxDistCount > 0 ? (count / maxDistCount) * 100 : 0;
+            return (
+              <div key={star} className="flex items-center gap-3">
+                <div className="flex items-center gap-1 w-12 shrink-0">
+                  <span className="text-xs font-medium text-muted-foreground w-3 text-right">{star}</span>
+                  <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 text-amber-400 fill-amber-400 shrink-0">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <svg width="100%" height="12" className="overflow-visible">
+                    <rect x="0" y="2" width="100%" height="8" rx="4" className="fill-muted" />
+                    <rect
+                      x="0"
+                      y="2"
+                      width={`${barWidthPct}%`}
+                      height="8"
+                      rx="4"
+                      className="fill-amber-400"
+                    />
+                  </svg>
+                </div>
+                <span className="text-xs text-muted-foreground w-6 text-right shrink-0">{count}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* ─── Tabs ─────────────────────────────────────────────────────────── */}
-      <div className="flex gap-1 border-b border-border pb-0">
+      <div className="flex gap-1 border-b border-border">
         <Link
           href={buildUrl({ tab: undefined })}
           className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
             activeTab === "reviews"
-              ? "bg-card border border-b-0 border-border text-foreground"
+              ? "bg-card border border-b-card border-border text-foreground"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
@@ -257,7 +328,7 @@ export default async function ReviewsPage({ searchParams }: PageProps) {
           href={buildUrl({ tab: "staff" })}
           className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
             activeTab === "staff"
-              ? "bg-card border border-b-0 border-border text-foreground"
+              ? "bg-card border border-b-card border-border text-foreground"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
@@ -267,111 +338,132 @@ export default async function ReviewsPage({ searchParams }: PageProps) {
 
       {/* ─── Reviews tab ─────────────────────────────────────────────────── */}
       {activeTab === "reviews" && (
-        <div className="space-y-6">
-          {/* Rating distribution */}
-          <div className="rounded-2xl border border-border bg-card p-5">
-            <p className="text-sm font-semibold text-foreground mb-3">Rating Distribution</p>
-            <div className="space-y-2">
-              {[5, 4, 3, 2, 1].map((star) => {
-                const count = distribution[star] ?? 0;
-                const pct = totalReviews > 0 ? (count / totalReviews) * 100 : 0;
-                return (
-                  <div key={star} className="flex items-center gap-2 text-xs">
-                    <span className="w-5 text-right text-muted-foreground font-medium">{star}</span>
-                    <Star className="w-3 h-3 text-amber-400 fill-amber-400 flex-shrink-0" />
-                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-amber-400 rounded-full transition-all"
-                        style={{ width: `${pct}%` }}
+        <div className="space-y-8">
+          {/* ── Pending responses section ─────────────────────────────────── */}
+          {pendingResponses.length > 0 && (
+            <section className="space-y-3">
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-semibold text-foreground">Pending Responses</h2>
+                <span className="px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-600 text-xs font-semibold border border-amber-200 dark:border-amber-800">
+                  {pendingResponses.length}
+                </span>
+              </div>
+              <div className="rounded-2xl border border-border bg-card overflow-hidden divide-y divide-border">
+                {pendingResponses.slice(0, 5).map((review) => {
+                  const firstName = review.Client?.name?.split(" ")[0] ?? "Anonymous";
+                  return (
+                    <div
+                      key={review.id}
+                      className="p-4 sm:p-5 flex items-start gap-4 hover:bg-muted/20 transition-colors"
+                    >
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-foreground">{firstName}</span>
+                          {review.Staff && (
+                            <span className="text-xs text-muted-foreground">
+                              for <span className="font-medium">{review.Staff.name}</span>
+                            </span>
+                          )}
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(review.createdAt)}
+                          </span>
+                        </div>
+                        <StarRow rating={review.rating} />
+                        {review.parsed.clientComment && (
+                          <p className="text-sm text-foreground/80 leading-relaxed line-clamp-2">
+                            {review.parsed.clientComment}
+                          </p>
+                        )}
+                      </div>
+                      <ReviewResponseButton
+                        reviewId={review.id}
+                        clientName={review.Client?.name ?? "Anonymous"}
+                        rating={review.rating}
+                        clientComment={review.parsed.clientComment}
+                        staffName={review.Staff?.name ?? null}
+                        date={formatDate(review.createdAt)}
+                        existingResponse={null}
                       />
                     </div>
-                    <span className="w-6 text-muted-foreground">{count}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Filters */}
-          <form className="flex flex-wrap gap-3 items-end">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-muted-foreground">Filter by Staff</label>
-              <select
-                name="staffId"
-                defaultValue={staffIdFilter ?? ""}
-                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="">All staff</option>
-                {staffList.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-muted-foreground">Min Rating</label>
-              <select
-                name="minRating"
-                defaultValue={minRatingFilter?.toString() ?? ""}
-                className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="">Any</option>
-                <option value="5">5 stars only</option>
-                <option value="4">4+ stars</option>
-                <option value="3">3+ stars</option>
-                <option value="2">2+ stars</option>
-              </select>
-            </div>
-
-            <button
-              type="submit"
-              className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
-            >
-              Apply
-            </button>
-
-            {(staffIdFilter || minRatingFilter) && (
-              <Link
-                href="/dashboard/reviews"
-                className="h-9 px-4 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:bg-muted/50 flex items-center transition-colors"
-              >
-                Clear
-              </Link>
-            )}
-          </form>
-
-          {/* Reviews list */}
-          <section>
-            <h2 className="text-base font-semibold text-foreground mb-3">
-              {reviews.length} Review{reviews.length !== 1 ? "s" : ""}
-              {(staffIdFilter || minRatingFilter) && (
-                <span className="text-sm font-normal text-muted-foreground ml-2">(filtered)</span>
+                  );
+                })}
+              </div>
+              {pendingResponses.length > 5 && (
+                <p className="text-xs text-muted-foreground">
+                  +{pendingResponses.length - 5} more — use &quot;No response&quot; filter below to see all.
+                </p>
               )}
-            </h2>
+            </section>
+          )}
 
-            {reviews.length === 0 ? (
+          {/* ── All reviews section ───────────────────────────────────────── */}
+          <section className="space-y-4">
+            <h2 className="text-base font-semibold text-foreground">All Reviews</h2>
+
+            {/* Filter + sort bar */}
+            <div className="flex flex-wrap gap-3 items-center justify-between">
+              {/* Filter chips */}
+              <div className="flex flex-wrap gap-2">
+                {(
+                  [
+                    ["all", "All"],
+                    ["5", "5★"],
+                    ["4", "4★"],
+                    ["3", "3★"],
+                    ["low", "1-2★"],
+                    ["no-response", "No response"],
+                  ] as [string, string][]
+                ).map(([value, label]) => (
+                  <Link
+                    key={value}
+                    href={buildUrl({ filter: value === "all" ? undefined : value, page: undefined })}
+                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                      filterMode === value
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-card border-border text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    }`}
+                  >
+                    {label}
+                  </Link>
+                ))}
+              </div>
+
+              {/* Sort select — submitted as a native form GET */}
+              <form method="GET" action="/dashboard/reviews">
+                {staffIdFilter && <input type="hidden" name="staffId" value={staffIdFilter} />}
+                {filterMode !== "all" && <input type="hidden" name="filter" value={filterMode} />}
+                <select
+                  name="sort"
+                  defaultValue={sortMode}
+                  onChange={(e) => (e.target.form as HTMLFormElement | null)?.submit()}
+                  className="h-8 rounded-lg border border-input bg-background px-3 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="newest">Newest</option>
+                  <option value="oldest">Oldest</option>
+                  <option value="rating-high">Rating ↓</option>
+                  <option value="rating-low">Rating ↑</option>
+                </select>
+              </form>
+            </div>
+
+            {/* Reviews list */}
+            {paginatedReviews.length === 0 ? (
               <div className="rounded-2xl border border-border bg-card p-12 text-center">
                 <Star className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
-                <p className="text-muted-foreground text-sm">No reviews yet.</p>
+                <p className="text-muted-foreground text-sm">No reviews match this filter.</p>
               </div>
             ) : (
-              <div className="rounded-2xl border border-border bg-card overflow-hidden">
-                <div className="divide-y divide-border">
-                  {reviews.map((review) => {
-                    const parsed = parseComment(review.comment);
-                    return (
-                      <div
-                        key={review.id}
-                        className="p-4 sm:p-5 flex items-start gap-4 hover:bg-muted/20 transition-colors"
-                      >
-                        <div className="flex-shrink-0 pt-0.5">
-                          <StarRow rating={review.rating} />
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2 mb-1">
+              <div className="rounded-2xl border border-border bg-card overflow-hidden divide-y divide-border">
+                {paginatedReviews.map((review) => {
+                  const { clientComment, salonResponse, isFlagged } = review.parsed;
+                  return (
+                    <div
+                      key={review.id}
+                      className={`p-4 sm:p-5 hover:bg-muted/20 transition-colors ${isFlagged ? "border-l-2 border-destructive" : ""}`}
+                    >
+                      <div className="flex items-start gap-4">
+                        <div className="flex-1 min-w-0 space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-semibold text-foreground">
                               {review.Client?.name ?? "Anonymous"}
                             </span>
@@ -389,76 +481,81 @@ export default async function ReviewsPage({ searchParams }: PageProps) {
                             >
                               {review.isPublic ? "Public" : "Private"}
                             </span>
-                            {parsed.wouldRecommend !== undefined && (
-                              <span
-                                className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                                  parsed.wouldRecommend
-                                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400"
-                                    : "bg-stone-100 text-stone-500"
-                                }`}
-                              >
-                                {parsed.wouldRecommend ? "Recommends" : "Wouldn't recommend"}
+                            {isFlagged && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-destructive/10 text-destructive">
+                                Flagged
                               </span>
                             )}
                           </div>
-                          {parsed.text && (
+                          <StarRow rating={review.rating} />
+                          {clientComment && (
                             <p className="text-sm text-foreground/80 leading-relaxed">
-                              {parsed.text}
+                              {clientComment}
                             </p>
                           )}
-                          <p className="text-xs text-muted-foreground mt-1.5">
-                            {formatDate(review.createdAt)}
-                          </p>
+                          {salonResponse && (
+                            <div className="mt-2 pl-3 border-l-2 border-primary/30">
+                              <p className="text-xs font-semibold text-primary mb-0.5">Owner response</p>
+                              <p className="text-xs text-foreground/70 leading-relaxed">{salonResponse}</p>
+                            </div>
+                          )}
+                          <p className="text-xs text-muted-foreground">{formatDate(review.createdAt)}</p>
                         </div>
 
-                        <div className="flex-shrink-0">
+                        {/* Actions */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <ReviewResponseButton
+                            reviewId={review.id}
+                            clientName={review.Client?.name ?? "Anonymous"}
+                            rating={review.rating}
+                            clientComment={clientComment}
+                            staffName={review.Staff?.name ?? null}
+                            date={formatDate(review.createdAt)}
+                            existingResponse={salonResponse}
+                          />
+                          <VisibilityToggle
+                            reviewId={review.id}
+                            isPublic={review.isPublic}
+                          />
                           <DeleteReviewButton id={review.id} />
                         </div>
                       </div>
-                    );
-                  })}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-2">
+                <p className="text-xs text-muted-foreground">
+                  Page {currentPage} of {totalPages} ({filteredReviews.length} reviews)
+                </p>
+                <div className="flex gap-2">
+                  {currentPage > 1 && (
+                    <Link
+                      href={buildUrl({ page: currentPage === 2 ? undefined : String(currentPage - 1) })}
+                      className="px-3 py-1.5 text-xs rounded-lg border border-border bg-card hover:bg-muted/50 text-foreground transition-colors"
+                    >
+                      Previous
+                    </Link>
+                  )}
+                  {currentPage < totalPages && (
+                    <Link
+                      href={buildUrl({ page: String(currentPage + 1) })}
+                      className="px-3 py-1.5 text-xs rounded-lg border border-border bg-card hover:bg-muted/50 text-foreground transition-colors"
+                    >
+                      Next
+                    </Link>
+                  )}
                 </div>
               </div>
             )}
           </section>
 
-          {/* ─── Pending review requests ───────────────────────────────────── */}
-          {unreviewedAppointments.length > 0 && (
-            <section>
-              <h2 className="text-base font-semibold text-foreground mb-3">
-                Request Reviews
-                <span className="ml-2 px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-xs font-semibold">
-                  {unreviewedAppointments.length}
-                </span>
-              </h2>
-              <p className="text-sm text-muted-foreground mb-4">
-                Completed appointments without a review. Copy the link to send to your client.
-              </p>
-              <div className="rounded-2xl border border-border bg-card overflow-hidden">
-                <div className="divide-y divide-border">
-                  {unreviewedAppointments.map((appt) => (
-                    <div
-                      key={appt.id}
-                      className="p-4 flex items-center justify-between gap-4 hover:bg-muted/20 transition-colors"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-foreground truncate">
-                          {appt.Client?.name ?? "Guest"}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {appt.date}
-                        </p>
-                      </div>
-                      <CopyReviewLink
-                        href={`/book/${salonSlug}/review/${appt.id}`}
-                        label="Copy review link"
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
-          )}
+          {/* ── Review request links ───────────────────────────────────────── */}
+          <ReviewRequestSection salonSlug={salonSlug} />
         </div>
       )}
 
@@ -466,7 +563,7 @@ export default async function ReviewsPage({ searchParams }: PageProps) {
       {activeTab === "staff" && (
         <div className="space-y-6">
           <p className="text-sm text-muted-foreground">
-            Average ratings by staff member, calculated from all submitted reviews.
+            Average ratings by staff member, sorted by rating descending.
           </p>
 
           {staffPerformance.length === 0 ? (
@@ -489,7 +586,7 @@ export default async function ReviewsPage({ searchParams }: PageProps) {
                       Reviews
                     </th>
                     <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                      Recommend %
+                      Last Review
                     </th>
                   </tr>
                 </thead>
@@ -510,21 +607,7 @@ export default async function ReviewsPage({ searchParams }: PageProps) {
                             <span className="font-semibold text-foreground">
                               {row.avgRating.toFixed(1)}
                             </span>
-                            <div className="flex gap-0.5">
-                              {[1, 2, 3, 4, 5].map((i) => (
-                                <svg
-                                  key={i}
-                                  viewBox="0 0 24 24"
-                                  className={`w-3 h-3 ${
-                                    i <= Math.round(row.avgRating!)
-                                      ? "text-amber-400 fill-amber-400"
-                                      : "text-muted-foreground/20 fill-muted-foreground/20"
-                                  }`}
-                                >
-                                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                                </svg>
-                              ))}
-                            </div>
+                            <StarRow rating={Math.round(row.avgRating)} />
                           </div>
                         ) : (
                           <span className="text-muted-foreground">—</span>
@@ -534,29 +617,9 @@ export default async function ReviewsPage({ searchParams }: PageProps) {
                         <span className="font-medium text-foreground">{row.reviewCount}</span>
                       </td>
                       <td className="px-5 py-3.5">
-                        {row.recommendPct !== null ? (
-                          <div className="flex items-center gap-2">
-                            <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-emerald-500 rounded-full"
-                                style={{ width: `${row.recommendPct}%` }}
-                              />
-                            </div>
-                            <span
-                              className={`text-xs font-semibold ${
-                                row.recommendPct >= 80
-                                  ? "text-emerald-600"
-                                  : row.recommendPct >= 60
-                                  ? "text-amber-600"
-                                  : "text-red-500"
-                              }`}
-                            >
-                              {row.recommendPct}%
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground text-xs">No data</span>
-                        )}
+                        <span className="text-muted-foreground text-xs">
+                          {row.lastReviewDate ? formatDate(row.lastReviewDate) : "—"}
+                        </span>
                       </td>
                     </tr>
                   ))}
@@ -567,5 +630,51 @@ export default async function ReviewsPage({ searchParams }: PageProps) {
         </div>
       )}
     </div>
+  );
+}
+
+// ─── ReviewRequestSection (async sub-component) ───────────────────────────────
+
+async function ReviewRequestSection({ salonSlug }: { salonSlug: string }) {
+  const unreviewedAppointments = await prisma.appointment.findMany({
+    where: { status: "COMPLETED", Review: { is: null } },
+    take: 10,
+    orderBy: { date: "desc" },
+    include: { Client: { select: { id: true, name: true } } },
+  });
+
+  if (unreviewedAppointments.length === 0) return null;
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <h2 className="text-base font-semibold text-foreground">Request Reviews</h2>
+        <span className="px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 text-xs font-semibold border border-blue-200 dark:border-blue-800">
+          {unreviewedAppointments.length}
+        </span>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Completed appointments without a review. Share the link to request feedback.
+      </p>
+      <div className="rounded-2xl border border-border bg-card overflow-hidden divide-y divide-border">
+        {unreviewedAppointments.map((appt) => (
+          <div
+            key={appt.id}
+            className="p-4 flex items-center justify-between gap-4 hover:bg-muted/20 transition-colors"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground truncate">
+                {appt.Client?.name ?? "Guest"}
+              </p>
+              <p className="text-xs text-muted-foreground">{appt.date}</p>
+            </div>
+            <CopyReviewLink
+              href={`/portal/${salonSlug}/review/${appt.id}`}
+              label="Copy review link"
+            />
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
