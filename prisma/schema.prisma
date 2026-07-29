@@ -3,7 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 model Appointment {
@@ -23,48 +25,90 @@ model Appointment {
   AppointmentService AppointmentService[]
   Invoice            Invoice?
   Reminder           Reminder[]
+  Review             Review?
 }
 
 model AppointmentService {
   appointmentId String
   serviceId     String
+  staffId       String?
   Service       Service     @relation(fields: [serviceId], references: [id])
   Appointment   Appointment @relation(fields: [appointmentId], references: [id])
+  Staff         Staff?      @relation(fields: [staffId], references: [id])
 
   @@id([appointmentId, serviceId])
 }
 
 model Client {
-  id            String        @id
-  salonId       String
-  name          String
-  phone         String?
-  email         String?
-  birthday      DateTime?
-  anniversary   DateTime?
-  notes         String?
-  loyaltyPoints Int           @default(0)
-  createdAt     DateTime      @default(now())
-  Appointment   Appointment[]
-  Salon         Salon         @relation(fields: [salonId], references: [id])
-  Invoice       Invoice[]
-  LedgerEntry   LedgerEntry[]
-  Waitlist      Waitlist[]
+  id               String             @id
+  salonId          String
+  name             String
+  phone            String?
+  email            String?
+  birthday         DateTime?
+  anniversary      DateTime?
+  notes            String?
+  loyaltyPoints    Int                @default(0)
+  tags             String?            @default("[]")
+  preferences      String?            @default("{}")
+  isVip            Boolean            @default(false)
+  doNotContact     Boolean            @default(false)
+  createdAt        DateTime           @default(now())
+  Appointment      Appointment[]
+  Salon            Salon              @relation(fields: [salonId], references: [id])
+  Invoice          Invoice[]
+  LedgerEntry      LedgerEntry[]
+  Waitlist         Waitlist[]
+  Review           Review[]
+  ClientMembership ClientMembership[]
 }
 
 model Invoice {
-  id            String       @id
-  salonId       String
-  clientId      String?
-  appointmentId String?      @unique
-  total         Float
-  paymentMethod String       @default("CASH")
-  status        String       @default("PAID")
-  createdAt     DateTime     @default(now())
-  note          String?
-  Appointment   Appointment? @relation(fields: [appointmentId], references: [id])
-  Client        Client?      @relation(fields: [clientId], references: [id])
-  Salon         Salon        @relation(fields: [salonId], references: [id])
+  id             String           @id
+  salonId        String
+  clientId       String?
+  appointmentId  String?          @unique
+  total          Float
+  discount       Float            @default(0)
+  paymentMethod  String           @default("CASH")
+  paymentMethod2 String?
+  paymentAmount2 Float?
+  giftCardCode   String?
+  giftCardAmount Float?
+  couponCode     String?
+  couponDiscount Float?
+  status         String           @default("PAID")
+  receiptPrefs   String?
+  createdAt      DateTime         @default(now())
+  note           String?
+  internalNotes  String?
+  clientNotes    String?
+  isRecurring    Boolean          @default(false)
+  paidAt         DateTime?
+  Appointment    Appointment?     @relation(fields: [appointmentId], references: [id])
+  Client         Client?          @relation(fields: [clientId], references: [id])
+  Salon          Salon            @relation(fields: [salonId], references: [id])
+  InvoiceItem    InvoiceItem[]
+  PartialPayment PartialPayment[]
+}
+
+model PartialPayment {
+  id        String   @id
+  invoiceId String
+  amount    Float
+  method    String
+  note      String?
+  createdAt DateTime @default(now())
+  Invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+model InvoiceItem {
+  id        String  @id
+  invoiceId String
+  name      String
+  price     Float
+  qty       Int     @default(1)
+  Invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 }
 
 model LedgerEntry {
@@ -78,15 +122,36 @@ model LedgerEntry {
 }
 
 model Reminder {
-  id            String      @id
-  appointmentId String
+  id            String       @id
+  salonId       String
+  appointmentId String?
+  clientId      String?
   type          String
-  status        String      @default("PENDING")
+  status        String       @default("PENDING")
   message       String
   scheduledAt   DateTime
   sentAt        DateTime?
-  createdAt     DateTime    @default(now())
-  Appointment   Appointment @relation(fields: [appointmentId], references: [id])
+  createdAt     DateTime     @default(now())
+  Appointment   Appointment? @relation(fields: [appointmentId], references: [id])
+  Salon         Salon        @relation(fields: [salonId], references: [id])
+}
+
+model Expense {
+  id            String   @id
+  salonId       String
+  category      String
+  subcategory   String?
+  description   String
+  amount        Float
+  date          String
+  receipt       String?
+  vendor        String?
+  paymentMethod String   @default("CASH")
+  isRecurring   Boolean  @default(false)
+  recurringDay  Int?
+  notes         String?
+  createdAt     DateTime @default(now())
+  Salon         Salon    @relation(fields: [salonId], references: [id])
 }
 
 model Salon {
@@ -109,12 +174,22 @@ model Salon {
   updatedAt       DateTime
   Appointment     Appointment[]
   Client          Client[]
+  Coupon          Coupon[]
+  Expense         Expense[]
   Invoice         Invoice[]
+  Review          Review[]
   Service         Service[]
   ServiceCategory ServiceCategory[]
   Staff           Staff[]
   User            User[]
   Waitlist        Waitlist[]
+  GiftCard        GiftCard[]
+  MembershipPlan  MembershipPlan[]
+  Reminder        Reminder[]
+  InventoryItem   InventoryItem[]
+  Campaign        Campaign[]
+  PayrollRecord   PayrollRecord[]
+  AutomationRule  AutomationRule[]
 }
 
 model Service {
@@ -125,6 +200,11 @@ model Service {
   durationMins       Int                  @default(30)
   price              Float
   active             Boolean              @default(true)
+  isAddon            Boolean              @default(false)
+  imageUrl           String?
+  bufferTimeBefore   Int                  @default(0)
+  bufferTimeAfter    Int                  @default(0)
+  onlineBooking      Boolean              @default(true)
   createdAt          DateTime             @default(now())
   AppointmentService AppointmentService[]
   ServiceCategory    ServiceCategory      @relation(fields: [categoryId], references: [id])
@@ -152,27 +232,59 @@ model Shift {
 }
 
 model Staff {
-  id            String         @id
-  salonId       String
-  name          String
-  phone         String?
-  avatar        String?
-  commissionPct Float          @default(0)
-  createdAt     DateTime       @default(now())
-  Appointment   Appointment[]
-  Shift         Shift[]
-  Salon         Salon          @relation(fields: [salonId], references: [id])
-  StaffService  StaffService[]
-  Waitlist      Waitlist[]
+  id                 String               @id
+  salonId            String
+  name               String
+  phone              String?
+  avatar             String?
+  commissionPct      Float                @default(0)
+  createdAt          DateTime             @default(now())
+  Appointment        Appointment[]
+  AppointmentService AppointmentService[]
+  PayrollRecord      PayrollRecord[]
+  Review             Review[]
+  Shift              Shift[]
+  Salon              Salon                @relation(fields: [salonId], references: [id])
+  StaffService       StaffService[]
+  TimeOff            TimeOff[]
+  Waitlist           Waitlist[]
+}
+
+model TimeOff {
+  id        String   @id
+  staffId   String
+  startDate String
+  endDate   String
+  reason    String?
+  approved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  Staff     Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
 }
 
 model StaffService {
-  staffId   String
-  serviceId String
-  Service   Service @relation(fields: [serviceId], references: [id])
-  Staff     Staff   @relation(fields: [staffId], references: [id])
+  staffId               String
+  serviceId             String
+  commissionOverridePct Float?
+  Service               Service @relation(fields: [serviceId], references: [id])
+  Staff                 Staff   @relation(fields: [staffId], references: [id])
 
   @@id([staffId, serviceId])
+}
+
+model PayrollRecord {
+  id           String    @id
+  salonId      String
+  staffId      String
+  periodStart  DateTime
+  periodEnd    DateTime
+  totalRevenue Float
+  commission   Float
+  paidAt       DateTime?
+  paidBy       String?
+  notes        String?
+  createdAt    DateTime  @default(now())
+  Salon        Salon     @relation(fields: [salonId], references: [id])
+  Staff        Staff     @relation(fields: [staffId], references: [id])
 }
 
 model User {
@@ -186,20 +298,169 @@ model User {
   Salon     Salon    @relation(fields: [salonId], references: [id])
 }
 
+model Coupon {
+  id          String   @id
+  salonId     String
+  code        String
+  type        String
+  value       Float
+  minOrderAmt Float    @default(0)
+  maxUses     Int?
+  usedCount   Int      @default(0)
+  expiresAt   String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  Salon       Salon    @relation(fields: [salonId], references: [id])
+}
+
+model GiftCard {
+  id                  String                @id
+  salonId             String
+  code                String                @unique
+  initialValue        Float
+  balance             Float
+  purchasedBy         String?
+  recipientName       String?
+  expiresAt           String?
+  status              String                @default("ACTIVE")
+  createdAt           DateTime              @default(now())
+  Salon               Salon                 @relation(fields: [salonId], references: [id])
+  GiftCardTransaction GiftCardTransaction[]
+}
+
+model GiftCardTransaction {
+  id         String   @id
+  giftCardId String
+  amount     Float
+  note       String?
+  invoiceId  String?
+  createdAt  DateTime @default(now())
+  GiftCard   GiftCard @relation(fields: [giftCardId], references: [id], onDelete: Cascade)
+}
+
 model Waitlist {
-  id        String   @id
-  salonId   String
-  clientId  String?
-  name      String
-  phone     String?
-  serviceId String?
-  staffId   String?
+  id              String    @id
+  salonId         String
+  clientId        String?
+  name            String
+  phone           String?
+  serviceId       String?
+  staffId         String?
+  note            String?
+  preferredDate   String?
+  preferredTime   String?
+  status          String    @default("WAITING")
+  position        Int       @default(0)
+  notifiedAt      DateTime?
+  slotAvailableAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  Salon           Salon     @relation(fields: [salonId], references: [id])
+  Client          Client?   @relation(fields: [clientId], references: [id])
+  Service         Service?  @relation(fields: [serviceId], references: [id])
+  Staff           Staff?    @relation(fields: [staffId], references: [id])
+}
+
+model MembershipPlan {
+  id               String             @id
+  salonId          String
+  name             String
+  price            Float
+  sessionsPerMonth Int
+  discountPct      Float              @default(0)
+  description      String?
+  active           Boolean            @default(true)
+  createdAt        DateTime           @default(now())
+  Salon            Salon              @relation(fields: [salonId], references: [id])
+  ClientMembership ClientMembership[]
+}
+
+model ClientMembership {
+  id           String         @id
+  clientId     String
+  planId       String
+  startDate    String
+  endDate      String?
+  sessionsUsed Int            @default(0)
+  status       String         @default("ACTIVE")
+  createdAt    DateTime       @default(now())
+  Client       Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  Plan         MembershipPlan @relation(fields: [planId], references: [id])
+}
+
+model Review {
+  id            String       @id
+  salonId       String
+  clientId      String?
+  appointmentId String?      @unique
+  rating        Int
+  comment       String?
+  staffId       String?
+  isPublic      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  Salon         Salon        @relation(fields: [salonId], references: [id])
+  Client        Client?      @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  Staff         Staff?       @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  Appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+}
+
+model Campaign {
+  id             String    @id
+  salonId        String
+  name           String
+  type           String
+  status         String    @default("DRAFT")
+  channel        String
+  subject        String?
+  message        String
+  targetFilter   String?
+  scheduledAt    DateTime?
+  sentAt         DateTime?
+  recipientCount Int       @default(0)
+  openCount      Int       @default(0)
+  clickCount     Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  Salon          Salon     @relation(fields: [salonId], references: [id])
+}
+
+model InventoryItem {
+  id                   String                 @id
+  salonId              String
+  name                 String
+  category             String
+  sku                  String?
+  quantity             Int                    @default(0)
+  unit                 String                 @default("pcs")
+  minQuantity          Int                    @default(0)
+  costPrice            Float?
+  salePrice            Float?
+  supplier             String?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  Salon                Salon                  @relation(fields: [salonId], references: [id])
+  InventoryTransaction InventoryTransaction[]
+}
+
+model InventoryTransaction {
+  id        String        @id
+  itemId    String
+  type      String
+  quantity  Int
   note      String?
-  status    String   @default("WAITING")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  Salon     Salon    @relation(fields: [salonId], references: [id])
-  Client    Client?  @relation(fields: [clientId], references: [id])
-  Service   Service? @relation(fields: [serviceId], references: [id])
-  Staff     Staff?   @relation(fields: [staffId], references: [id])
+  createdAt DateTime      @default(now())
+  Item      InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+}
+
+model AutomationRule {
+  id              String   @id
+  salonId         String
+  name            String
+  trigger         String
+  channel         String
+  timing          String
+  messageTemplate String
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  Salon           Salon    @relation(fields: [salonId], references: [id])
 }
