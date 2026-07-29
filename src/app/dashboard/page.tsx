@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { DashboardHome } from "./dashboard-home";
+import { getRevenueGoals } from "@/app/actions/settings";
+import { getRecentActivity, getRecentChanges } from "@/lib/activity-feed";
 
 export const dynamic = "force-dynamic";
 
@@ -341,9 +343,12 @@ export default async function DashboardPage() {
 
   const avgRating = avgRatingAgg._avg.rating ?? 0;
 
-  // Monthly revenue target: use totalRevenue * 1.2 as mock target
+  // Monthly revenue target: from stored goals (falls back to 120% of actual as a seed)
   const totalMonthRevenue = monthRevenue._sum.total ?? 0;
-  const monthlyTarget = totalMonthRevenue * 1.2 || 10000;
+  const revenueGoals = await getRevenueGoals();
+  const monthlyTarget = revenueGoals.monthly > 0
+    ? revenueGoals.monthly
+    : (totalMonthRevenue * 1.2 || 10000);
 
   // Build client activity feed: interleave new clients + completed appts
   const newClientItems = recentNewClients.map((c) => ({
@@ -371,6 +376,11 @@ export default async function DashboardPage() {
     .sort((a, b) => (a._ts < b._ts ? 1 : -1))
     .slice(0, 8)
     .map(({ _ts: _discarded, ...rest }) => rest);
+
+  // Fetch recent activity from lib (for the TodaySummaryWidget)
+  const [recentActivity] = await Promise.all([
+    getRecentActivity(20),
+  ]);
 
   return (
     <DashboardHome
@@ -411,6 +421,7 @@ export default async function DashboardPage() {
       servicesOffered={servicesOffered}
       avgRating={avgRating}
       activeMemberships={activeMemberships}
+      recentActivity={recentActivity}
     />
   );
 }

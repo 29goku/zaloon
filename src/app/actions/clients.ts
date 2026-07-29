@@ -830,6 +830,81 @@ export async function getUpcomingAnniversaries(
   }
 }
 
+// ─── getAllClientTags ─────────────────────────────────────────────────────────
+
+export async function getAllClientTags(): Promise<string[]> {
+  try {
+    const salon = await prisma.salon.findFirst({ select: { id: true } });
+    if (!salon) return [];
+
+    const clients = await prisma.client.findMany({
+      where: { salonId: salon.id },
+      select: { tags: true },
+    });
+
+    const tagSet = new Set<string>();
+    for (const c of clients) {
+      if (!c.tags) continue;
+      try {
+        const parsed = JSON.parse(c.tags);
+        if (Array.isArray(parsed)) {
+          for (const t of parsed) {
+            if (typeof t === "string" && t.trim()) tagSet.add(t.trim());
+          }
+        }
+      } catch {
+        /* skip malformed */
+      }
+    }
+    return Array.from(tagSet).sort();
+  } catch (err) {
+    console.error("[getAllClientTags]", err);
+    return [];
+  }
+}
+
+// ─── bulkAddTag ───────────────────────────────────────────────────────────────
+
+export async function bulkAddTag(
+  clientIds: string[],
+  tag: string
+): Promise<{ success: true; updated: number } | { success: false; error: string }> {
+  if (!clientIds.length) return { success: true, updated: 0 };
+  const trimmedTag = tag?.trim();
+  if (!trimmedTag) return { success: false, error: "Tag is required" };
+
+  try {
+    const clients = await prisma.client.findMany({
+      where: { id: { in: clientIds } },
+      select: { id: true, tags: true },
+    });
+
+    let updated = 0;
+    for (const client of clients) {
+      let tags: string[] = [];
+      try {
+        tags = JSON.parse(client.tags ?? "[]") as string[];
+      } catch {
+        tags = [];
+      }
+      if (!tags.includes(trimmedTag)) {
+        tags.push(trimmedTag);
+        await prisma.client.update({
+          where: { id: client.id },
+          data: { tags: JSON.stringify(tags) },
+        });
+        updated++;
+      }
+    }
+
+    revalidatePath("/dashboard/clients");
+    return { success: true, updated };
+  } catch (err) {
+    console.error("[bulkAddTag]", err);
+    return { success: false, error: "Failed to add tag" };
+  }
+}
+
 // ─── Retention analytics ─────────────────────────────────────────────────────
 
 export type RetentionClient = {
@@ -1043,6 +1118,45 @@ export async function sendWinBackMessage(
   } catch (err) {
     console.error("[sendWinBackMessage]", err);
     return { success: false, error: "Failed to send win-back message" };
+  }
+}
+
+export async function sendBirthdayMessage(
+  clientId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!clientId) return { success: false, error: "Missing client id" };
+
+  try {
+    const client = await prisma.client.findUnique({
+      where: { id: clientId },
+      select: { id: true, name: true, phone: true },
+    });
+    if (!client) return { success: false, error: "Client not found" };
+
+    const salon = await prisma.salon.findFirst({
+      select: { id: true },
+    });
+    if (!salon) return { success: false, error: "No salon found" };
+
+    const message = `Happy Birthday ${client.name}! 🎂 Wishing you a wonderful day. As a birthday gift, enjoy a special discount on your next visit. We look forward to seeing you soon!`;
+
+    await prisma.reminder.create({
+      data: {
+        id: randomUUID(),
+        salonId: salon.id,
+        clientId: client.id,
+        type: "SMS",
+        status: "PENDING",
+        message,
+        scheduledAt: new Date(),
+      },
+    });
+
+    revalidatePath("/dashboard/clients/birthdays");
+    return { success: true };
+  } catch (err) {
+    console.error("[sendBirthdayMessage]", err);
+    return { success: false, error: "Failed to send birthday message" };
   }
 }
 

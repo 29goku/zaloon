@@ -432,6 +432,287 @@ export async function getAllPayrollHistory(filters?: {
   }
 }
 
+// ── getPayrollForPeriod ───────────────────────────────────────────────────────
+
+export interface PayrollPeriodSummary {
+  staffId: string;
+  staffName: string;
+  commissionPct: number;
+  servicesCount: number;
+  totalRevenue: number;
+  commissionEarned: number;
+  tips: number;
+  netPay: number;
+  status: "PAID" | "PENDING";
+  recordId?: string;
+}
+
+/**
+ * Aggregate invoices/tips for each staff member in the given date range.
+ * Links through Appointment -> Staff -> Invoice.
+ */
+export async function getPayrollForPeriod(
+  startDate: Date,
+  endDate: Date
+): Promise<PayrollPeriodSummary[]> {
+  const from = startDate.toISOString().split("T")[0];
+  const to = endDate.toISOString().split("T")[0];
+
+  const staff = await prisma.staff.findMany({
+    orderBy: { name: "asc" },
+    include: {
+      StaffService: { select: { serviceId: true, commissionOverridePct: true } },
+      Appointment: {
+        where: { status: "COMPLETED", date: { gte: from, lte: to } },
+        include: {
+          Invoice: { select: { total: true, status: true, tip: true } },
+          AppointmentService: { select: { serviceId: true } },
+        },
+      },
+      PayrollRecord: {
+        where: {
+          periodStart: startDate,
+          periodEnd: endDate,
+        },
+        select: { id: true, paidAt: true },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
+  });
+
+  return staff.map((member) => {
+    const overrideMap = new Map<string, number | null>();
+    for (const ss of member.StaffService) {
+      overrideMap.set(ss.serviceId, ss.commissionOverridePct ?? null);
+    }
+
+    let totalRevenue = 0;
+    let totalCommission = 0;
+    let totalTips = 0;
+    let servicesCount = 0;
+
+    for (const appt of member.Appointment) {
+      const inv = appt.Invoice;
+      const apptRevenue =
+        inv && inv.status === "PAID" ? inv.total : appt.totalAmount;
+      const apptTip = inv?.tip ?? 0;
+      totalTips += apptTip;
+
+      const svcCount = appt.AppointmentService.length;
+      servicesCount += svcCount || 1;
+
+      if (svcCount === 0) {
+        totalRevenue += apptRevenue;
+        totalCommission += (apptRevenue * member.commissionPct) / 100;
+        continue;
+      }
+
+      const revenuePerSvc = apptRevenue / svcCount;
+      for (const as of appt.AppointmentService) {
+        const override = overrideMap.get(as.serviceId);
+        const rate =
+          override !== undefined && override !== null
+            ? override
+            : member.commissionPct;
+        totalRevenue += revenuePerSvc;
+        totalCommission += (revenuePerSvc * rate) / 100;
+      }
+    }
+
+    const paidRecord = member.PayrollRecord[0] ?? null;
+
+    return {
+      staffId: member.id,
+      staffName: member.name,
+      commissionPct: member.commissionPct,
+      servicesCount,
+      totalRevenue,
+      commissionEarned: totalCommission,
+      tips: totalTips,
+      netPay: totalCommission + totalTips,
+      status: (paidRecord !== null ? "PAID" : "PENDING") as "PAID" | "PENDING",
+      recordId: paidRecord?.id,
+    };
+  });
+}
+
+// ── markStaffPaid ─────────────────────────────────────────────────────────────
+
+/**
+ * Creates or updates a PayrollRecord to mark a staff member as paid for a period.
+ */
+export async function markStaffPaid(data: {
+  staffId: string;
+  periodStart: Date;
+  periodEnd: Date;
+  totalRevenue: number;
+  commission: number;
+  paidBy?: string;
+  notes?: string;
+}): Promise<{ success: boolean; id?: string; error?: string }> {
+  try {
+    const salon = await prisma.salon.findFirst();
+    if (!salon) return { success: false, error: "No salon found" };
+
+    const staff = await prisma.staff.findUnique({ where: { id: data.staffId } });
+    if (!staff) return { success: false, error: "Staff not found" };
+
+    // Upsert: update if already exists for this exact period, else create
+    const existing = await prisma.payrollRecord.findFirst({
+      where: {
+        staffId: data.staffId,
+        periodStart: data.periodStart,
+        periodEnd: data.periodEnd,
+      },
+    });
+
+    let record;
+    if (existing) {
+      record = await prisma.payrollRecord.update({
+        where: { id: existing.id },
+        data: {
+          totalRevenue: data.totalRevenue,
+          commission: data.commission,
+          paidAt: new Date(),
+          paidBy: data.paidBy ?? null,
+          notes: data.notes ?? null,
+        },
+      });
+    } else {
+      record = await prisma.payrollRecord.create({
+        data: {
+          id: randomUUID(),
+          salonId: salon.id,
+          staffId: data.staffId,
+          periodStart: data.periodStart,
+          periodEnd: data.periodEnd,
+          totalRevenue: data.totalRevenue,
+          commission: data.commission,
+          paidAt: new Date(),
+          paidBy: data.paidBy ?? null,
+          notes: data.notes ?? null,
+        },
+      });
+    }
+
+    return { success: true, id: record.id };
+  } catch (err) {
+    console.error("[markStaffPaid]", err);
+    return { success: false, error: "Failed to mark staff as paid" };
+  }
+}
+
+// ── getPayrollHistoryAll ──────────────────────────────────────────────────────
+
+/**
+ * List PayrollRecord entries, optionally filtered by staffId, newest first.
+ */
+export async function getPayrollHistoryAll(staffId?: string): Promise<{
+  records: Array<{
+    id: string;
+    staffId: string;
+    staffName: string;
+    periodStart: Date;
+    periodEnd: Date;
+    totalRevenue: number;
+    commission: number;
+    paidAt: Date | null;
+    notes: string | null;
+  }>;
+}> {
+  const records = await prisma.payrollRecord.findMany({
+    where: staffId ? { staffId } : undefined,
+    orderBy: { periodStart: "desc" },
+    include: { Staff: { select: { name: true } } },
+  });
+
+  return {
+    records: records.map((r) => ({
+      id: r.id,
+      staffId: r.staffId,
+      staffName: r.Staff.name,
+      periodStart: r.periodStart,
+      periodEnd: r.periodEnd,
+      totalRevenue: r.totalRevenue,
+      commission: r.commission,
+      paidAt: r.paidAt,
+      notes: r.notes,
+    })),
+  };
+}
+
+// ── bulkMarkPaid ──────────────────────────────────────────────────────────────
+
+/**
+ * Mark multiple staff members as paid for the same period.
+ */
+export async function bulkMarkPaid(
+  staffIds: string[],
+  period: { start: Date; end: Date }
+): Promise<{ success: boolean; count: number; error?: string }> {
+  try {
+    const salon = await prisma.salon.findFirst();
+    if (!salon) return { success: false, count: 0, error: "No salon found" };
+
+    const from = period.start.toISOString().split("T")[0];
+    const to = period.end.toISOString().split("T")[0];
+
+    let count = 0;
+    for (const staffId of staffIds) {
+      // Get revenue for this staff member in period
+      const appointments = await prisma.appointment.findMany({
+        where: { staffId, status: "COMPLETED", date: { gte: from, lte: to } },
+        include: { Invoice: { select: { total: true, status: true } } },
+      });
+
+      const totalRevenue = appointments.reduce((sum, appt) => {
+        const inv = appt.Invoice;
+        return sum + (inv && inv.status === "PAID" ? inv.total : appt.totalAmount);
+      }, 0);
+
+      const staff = await prisma.staff.findUnique({ where: { id: staffId } });
+      if (!staff) continue;
+
+      const commission = (totalRevenue * staff.commissionPct) / 100;
+
+      const existing = await prisma.payrollRecord.findFirst({
+        where: {
+          staffId,
+          periodStart: period.start,
+          periodEnd: period.end,
+        },
+      });
+
+      if (existing) {
+        await prisma.payrollRecord.update({
+          where: { id: existing.id },
+          data: { totalRevenue, commission, paidAt: new Date() },
+        });
+      } else {
+        await prisma.payrollRecord.create({
+          data: {
+            id: randomUUID(),
+            salonId: salon.id,
+            staffId,
+            periodStart: period.start,
+            periodEnd: period.end,
+            totalRevenue,
+            commission,
+            paidAt: new Date(),
+          },
+        });
+      }
+      count++;
+    }
+
+    return { success: true, count };
+  } catch (err) {
+    console.error("[bulkMarkPaid]", err);
+    return { success: false, count: 0, error: "Failed to bulk mark paid" };
+  }
+}
+
 // ── bulkSetServiceCommissionOverrides ─────────────────────────────────────────
 
 /**

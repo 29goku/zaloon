@@ -183,6 +183,200 @@ export async function applyShiftToAll(
   }
 }
 
+// ─── createShift ──────────────────────────────────────────────────────────────
+
+export async function createShift(data: {
+  staffId: string;
+  dayOfWeek: number; // 0=Sun, 1=Mon ... 6=Sat
+  startTime: string; // HH:MM
+  endTime: string; // HH:MM
+}): Promise<{ success: boolean; id?: string; error?: string }> {
+  if (!data.staffId) return { success: false, error: "Missing staffId" };
+  if (data.dayOfWeek < 0 || data.dayOfWeek > 6)
+    return { success: false, error: "dayOfWeek must be 0–6" };
+  if (!data.startTime || !data.endTime)
+    return { success: false, error: "startTime and endTime are required" };
+
+  try {
+    // upsert: if a shift already exists for this staff+day, update it
+    const existing = await prisma.shift.findFirst({
+      where: { staffId: data.staffId, dayOfWeek: data.dayOfWeek },
+    });
+
+    if (existing) {
+      await prisma.shift.update({
+        where: { id: existing.id },
+        data: { startTime: data.startTime, endTime: data.endTime },
+      });
+      revalidatePath("/dashboard/staff/schedule");
+      return { success: true, id: existing.id };
+    }
+
+    const id = randomUUID();
+    await prisma.shift.create({
+      data: {
+        id,
+        staffId: data.staffId,
+        dayOfWeek: data.dayOfWeek,
+        startTime: data.startTime,
+        endTime: data.endTime,
+      },
+    });
+    revalidatePath("/dashboard/staff/schedule");
+    return { success: true, id };
+  } catch (err) {
+    console.error("[createShift]", err);
+    return { success: false, error: "Failed to create shift" };
+  }
+}
+
+// ─── deleteShift ──────────────────────────────────────────────────────────────
+
+export async function deleteShift(
+  id: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!id) return { success: false, error: "Missing shift id" };
+  try {
+    await prisma.shift.delete({ where: { id } });
+    revalidatePath("/dashboard/staff/schedule");
+    return { success: true };
+  } catch (err) {
+    console.error("[deleteShift]", err);
+    return { success: false, error: "Failed to delete shift" };
+  }
+}
+
+// ─── setStaffSchedule ────────────────────────────────────────────────────────
+// Replaces all existing shifts for a staff member with the new schedule.
+
+export async function setStaffSchedule(
+  staffId: string,
+  schedule: { dayOfWeek: number; startTime: string; endTime: string }[]
+): Promise<{ success: boolean; error?: string }> {
+  if (!staffId) return { success: false, error: "Missing staffId" };
+
+  try {
+    await prisma.$transaction(async (tx: Tx) => {
+      await tx.shift.deleteMany({ where: { staffId } });
+      for (const entry of schedule) {
+        await tx.shift.create({
+          data: {
+            id: randomUUID(),
+            staffId,
+            dayOfWeek: entry.dayOfWeek,
+            startTime: entry.startTime,
+            endTime: entry.endTime,
+          },
+        });
+      }
+    });
+    revalidatePath("/dashboard/staff/schedule");
+    return { success: true };
+  } catch (err) {
+    console.error("[setStaffSchedule]", err);
+    return { success: false, error: "Failed to set staff schedule" };
+  }
+}
+
+// ─── getWeeklySchedule ────────────────────────────────────────────────────────
+
+export async function getWeeklySchedule(): Promise<{
+  staff: {
+    id: string;
+    name: string;
+    shifts: { id: string; dayOfWeek: number; startTime: string; endTime: string }[];
+  }[];
+}> {
+  const allStaff = await prisma.staff.findMany({
+    include: { Shift: { orderBy: { dayOfWeek: "asc" } } },
+    orderBy: { name: "asc" },
+  });
+
+  return {
+    staff: allStaff.map((s) => ({
+      id: s.id,
+      name: s.name,
+      shifts: s.Shift.map((sh) => ({
+        id: sh.id,
+        dayOfWeek: sh.dayOfWeek,
+        startTime: sh.startTime,
+        endTime: sh.endTime,
+      })),
+    })),
+  };
+}
+
+// ─── getStaffAvailabilityForDate ─────────────────────────────────────────────
+
+export async function getStaffAvailabilityForDate(
+  staffId: string,
+  date: string // "YYYY-MM-DD"
+): Promise<{
+  hasShift: boolean;
+  shiftStart: string | null;
+  shiftEnd: string | null;
+  onLeave: boolean;
+  leaveReason: string | null;
+  appointmentCount: number;
+}> {
+  try {
+    const staff = await prisma.staff.findUnique({
+      where: { id: staffId },
+      include: { Shift: true },
+    });
+
+    if (!staff) {
+      return {
+        hasShift: false,
+        shiftStart: null,
+        shiftEnd: null,
+        onLeave: false,
+        leaveReason: null,
+        appointmentCount: 0,
+      };
+    }
+
+    // Day of week for the given date
+    const [y, m, d] = date.split("-").map(Number);
+    const jsDay = new Date(y, m - 1, d).getDay(); // 0=Sun
+    const shift = staff.Shift.find((s) => s.dayOfWeek === jsDay) ?? null;
+
+    // Check approved time-off
+    const timeOff = await prisma.timeOff.findFirst({
+      where: {
+        staffId,
+        approved: true,
+        startDate: { lte: date },
+        endDate: { gte: date },
+      },
+    });
+
+    // Count appointments on that date
+    const appointmentCount = await prisma.appointment.count({
+      where: { staffId, date },
+    });
+
+    return {
+      hasShift: !!shift,
+      shiftStart: shift?.startTime ?? null,
+      shiftEnd: shift?.endTime ?? null,
+      onLeave: !!timeOff,
+      leaveReason: timeOff?.reason ?? null,
+      appointmentCount,
+    };
+  } catch (err) {
+    console.error("[getStaffAvailabilityForDate]", err);
+    return {
+      hasShift: false,
+      shiftStart: null,
+      shiftEnd: null,
+      onLeave: false,
+      leaveReason: null,
+      appointmentCount: 0,
+    };
+  }
+}
+
 // ─── Set standard week for all staff (Mon-Fri 9-18, Sat 9-15, Sun off) ────────
 // dayOfWeek: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
 

@@ -12,6 +12,7 @@ import {
   type HistoryAppointment,
   type HistoryStats,
 } from "@/components/appointments/appointment-history-table";
+import { getAppointmentsBySeries } from "@/app/actions/appointments";
 import Link from "next/link";
 import { Suspense } from "react";
 
@@ -27,13 +28,110 @@ function getWeekMonday(dateStr: string): string {
 }
 
 interface PageProps {
-  searchParams: Promise<{ view?: string; week?: string; date?: string }>;
+  searchParams: Promise<{ view?: string; week?: string; date?: string; series?: string }>;
 }
 
 export default async function AppointmentsPage({ searchParams }: PageProps) {
   const params = await searchParams;
 
   const today = new Date().toISOString().split("T")[0];
+
+  // ── Series view ────────────────────────────────────────────────────────────
+  if (params.series) {
+    const seriesId = params.series;
+    const [seriesAppts, salon, staff, services] = await Promise.all([
+      getAppointmentsBySeries(seriesId),
+      prisma.salon.findFirst(),
+      prisma.staff.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+      prisma.service.findMany({ select: { id: true, name: true, price: true, durationMins: true, categoryId: true }, orderBy: { name: "asc" } }),
+    ]);
+
+    const currency = salon?.currency ?? "USD";
+
+    // Parse series metadata from first appointment's notes
+    let seriesMeta: { pattern: string; total: number } | null = null;
+    if (seriesAppts.length > 0 && seriesAppts[0].notes) {
+      try {
+        const parsed = JSON.parse(seriesAppts[0].notes);
+        if (parsed?.__recurring) {
+          seriesMeta = { pattern: parsed.__recurring.pattern, total: parsed.__recurring.total };
+        }
+      } catch { /* ignore */ }
+    }
+
+    const mappedSeriesAppts = seriesAppts.map((a) => ({
+      ...a,
+      client: a.Client ? { id: a.Client.id, name: a.Client.name } : null,
+      staff: { id: a.Staff.id, name: a.Staff.name },
+      services: a.AppointmentService.map((as) => ({
+        service: { id: as.Service.id, name: as.Service.name, price: as.Service.price, durationMins: as.Service.durationMins },
+        staff: as.Staff ? { id: as.Staff.id, name: as.Staff.name } : null,
+      })),
+    }));
+
+    const patternLabel =
+      seriesMeta?.pattern === "weekly"
+        ? "Weekly"
+        : seriesMeta?.pattern === "biweekly"
+        ? "Every 2 weeks"
+        : seriesMeta?.pattern === "monthly"
+        ? "Monthly"
+        : "";
+
+    return (
+      <div className="p-4 md:p-8">
+        {/* Series header */}
+        <div className="flex items-start sm:items-center justify-between mb-6 md:mb-8 flex-wrap gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Link
+                href="/dashboard/appointments"
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Appointments
+              </Link>
+              <span className="text-muted-foreground/40">/</span>
+              <span className="text-xs text-foreground font-medium">Recurring Series</span>
+            </div>
+            <h1 className="text-2xl md:text-3xl font-bold text-foreground flex items-center gap-2">
+              <CalendarDays className="w-6 h-6 text-violet-400" />
+              Recurring Series
+            </h1>
+            <p className="text-muted-foreground mt-1 text-sm">
+              {seriesAppts.length} appointment{seriesAppts.length !== 1 ? "s" : ""}
+              {patternLabel ? ` · ${patternLabel}` : ""}
+              {" · Series ID: "}
+              <span className="font-mono text-xs">{seriesId.slice(0, 8).toUpperCase()}</span>
+            </p>
+          </div>
+          <Link
+            href="/dashboard/appointments"
+            className="text-sm px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+          >
+            Back to all appointments
+          </Link>
+        </div>
+
+        <Card className="bg-card border-border">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <CalendarDays className="w-5 h-5 text-violet-400" />
+              All occurrences
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AppointmentsListWithSheet
+              appointments={mappedSeriesAppts}
+              currency={currency}
+              clients={[]}
+              staff={staff}
+              services={services}
+            />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // Determine active view
   const rawView = params.view;
@@ -126,12 +224,13 @@ export default async function AppointmentsPage({ searchParams }: PageProps) {
     const rawWeek = params.week ?? today;
     const weekStart = getWeekMonday(rawWeek);
 
-    const [weekAppointments, clients, staff, services, categories] = await Promise.all([
+    const [weekAppointments, clients, staff, services, categories, salon] = await Promise.all([
       getAppointmentsForWeek(weekStart),
       prisma.client.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
       prisma.staff.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
       prisma.service.findMany({ select: { id: true, name: true, price: true, durationMins: true, categoryId: true }, orderBy: { name: "asc" } }),
       prisma.serviceCategory.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+      prisma.salon.findFirst(),
     ]);
 
     return (
@@ -143,6 +242,7 @@ export default async function AppointmentsPage({ searchParams }: PageProps) {
           staff={staff}
           services={services}
           categories={categories}
+          salonId={salon?.id}
         />
         <Card className="bg-card border-border">
           <CardContent className="pt-6">
@@ -239,6 +339,7 @@ export default async function AppointmentsPage({ searchParams }: PageProps) {
         staff={staff}
         services={services}
         categories={categories}
+        salonId={salon?.id}
       />
 
       {/* Stats row */}
@@ -312,6 +413,7 @@ function Header({
   staff,
   services,
   categories,
+  salonId,
 }: {
   view: "list" | "calendar" | "history";
   today: string;
@@ -320,6 +422,7 @@ function Header({
   staff: { id: string; name: string }[];
   services: { id: string; name: string; price: number; durationMins: number; categoryId: string }[];
   categories: { id: string; name: string }[];
+  salonId?: string;
 }) {
   const calHref = `?view=calendar&week=${weekStart ?? today}`;
   const listHref = `?view=list&date=${selectedDate ?? today}`;
@@ -375,6 +478,7 @@ function Header({
             staff={staff}
             services={services}
             categories={categories}
+            salonId={salonId}
           />
         )}
       </div>

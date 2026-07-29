@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import { MarkPaidButton } from "./mark-paid-button";
+import Link from "next/link";
 
 interface ServiceBreakdown {
   serviceId: string;
@@ -23,6 +24,8 @@ interface PayrollStaffRowProps {
   revenue: number;
   commissionPct: number;
   commissionEarned: number;
+  tips: number;
+  netPay: number;
   alreadyPaid: boolean;
   services: ServiceBreakdown[];
 }
@@ -37,6 +40,8 @@ export function PayrollStaffRow({
   revenue,
   commissionPct,
   commissionEarned,
+  tips,
+  netPay,
   alreadyPaid,
   services,
 }: PayrollStaffRowProps) {
@@ -63,7 +68,13 @@ export function PayrollStaffRow({
             <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-primary text-sm font-bold flex-shrink-0">
               {initials}
             </div>
-            <span className="font-medium text-foreground">{staffName}</span>
+            <Link
+              href={`/dashboard/payroll/${staffId}?from=${from}&to=${to}`}
+              className="font-medium text-foreground hover:text-primary transition-colors flex items-center gap-1"
+            >
+              {staffName}
+              <ExternalLink className="w-3 h-3 opacity-40" />
+            </Link>
           </div>
         </td>
         <td className="px-4 py-3 text-right text-foreground tabular-nums">
@@ -75,8 +86,14 @@ export function PayrollStaffRow({
         <td className="px-4 py-3 text-right text-muted-foreground tabular-nums">
           {commissionPct}%
         </td>
-        <td className="px-4 py-3 text-right font-semibold text-primary tabular-nums">
+        <td className="px-4 py-3 text-right text-foreground tabular-nums">
           ${commissionEarned.toFixed(2)}
+        </td>
+        <td className="px-4 py-3 text-right text-foreground tabular-nums">
+          ${tips.toFixed(2)}
+        </td>
+        <td className="px-4 py-3 text-right font-semibold text-primary tabular-nums">
+          ${netPay.toFixed(2)}
         </td>
         <td className="px-4 py-3 text-right">
           <MarkPaidButton
@@ -84,7 +101,7 @@ export function PayrollStaffRow({
             staffName={staffName}
             from={from}
             to={to}
-            commission={commissionEarned}
+            commission={netPay}
             alreadyPaid={alreadyPaid}
           />
         </td>
@@ -110,7 +127,7 @@ export function PayrollStaffRow({
             <td className="px-4 py-2 text-right text-xs font-semibold text-muted-foreground">
               Commission
             </td>
-            <td />
+            <td colSpan={3} />
           </tr>
           {services.map((svc) => (
             <tr
@@ -132,7 +149,7 @@ export function PayrollStaffRow({
               <td className="px-4 py-2 text-right text-xs font-medium text-primary tabular-nums">
                 ${svc.commission.toFixed(2)}
               </td>
-              <td />
+              <td colSpan={3} />
             </tr>
           ))}
           {/* Subtotal row */}
@@ -150,14 +167,14 @@ export function PayrollStaffRow({
             <td className="px-4 py-2 text-right text-xs font-bold text-primary tabular-nums">
               ${services.reduce((s, x) => s + x.commission, 0).toFixed(2)}
             </td>
-            <td />
+            <td colSpan={3} />
           </tr>
         </>
       )}
       {expanded && services.length === 0 && (
         <tr className="bg-muted/10 border-b border-border">
           <td
-            colSpan={6}
+            colSpan={8}
             className="pl-16 pr-4 py-3 text-xs text-muted-foreground"
           >
             No service breakdown available for this period.

@@ -3,7 +3,7 @@ import { Outfit } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { ThemeInitializer } from "@/components/theme/theme-initializer";
-import { PwaRegister } from "@/components/pwa-register";
+import { SwRegister } from "@/components/sw-register";
 
 const outfit = Outfit({
   subsets: ["latin"],
@@ -15,7 +15,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#B4EFA5",
+  themeColor: "#F48E16",
 };
 
 export const metadata: Metadata = {
@@ -24,12 +24,15 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
   icons: {
     icon: "/favicon.svg",
-    apple: "/icon-192.svg",
+    apple: "/icons/icon-192.png",
   },
   appleWebApp: {
     capable: true,
     title: "Zaloon",
     statusBarStyle: "black-translucent",
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
   },
 };
 
@@ -45,7 +48,7 @@ export default function RootLayout({
           <ThemeInitializer />
           {children}
         </ThemeProvider>
-        <PwaRegister />
+        <SwRegister />
       </body>
     </html>
   );

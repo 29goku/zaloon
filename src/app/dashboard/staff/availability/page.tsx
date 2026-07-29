@@ -3,6 +3,8 @@ import Link from "next/link";
 import { ArrowLeft, CheckCircle2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApprovalActions } from "./approval-actions";
+import { getStaffBookingSettings } from "@/app/actions/settings";
+import { StaffBookingSettingsClient } from "./staff-booking-settings-client";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +52,10 @@ export default async function StaffAvailabilityPage() {
     },
     orderBy: { name: "asc" },
   });
+
+  // Staff booking settings
+  const staffBookingSettings = await getStaffBookingSettings();
+  const staffForSettings = allStaff.map((s) => ({ id: s.id, name: s.name }));
 
   // All pending time-off requests (not limited to 30-day window, for manager review)
   const pendingRequests = await prisma.timeOff.findMany({
@@ -261,6 +267,19 @@ export default async function StaffAvailabilityPage() {
               ))}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* ── Staff Booking Availability Overrides ──────────────────────────── */}
+      <Card className="bg-card border-border">
+        <CardHeader>
+          <CardTitle className="text-lg">Online Booking Availability</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Configure per-staff booking constraints: who accepts online bookings, max clients per day, and advance booking window.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <StaffBookingSettingsClient staff={staffForSettings} initialSettings={staffBookingSettings} />
         </CardContent>
       </Card>
     </div>

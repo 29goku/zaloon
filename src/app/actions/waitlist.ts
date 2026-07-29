@@ -338,6 +338,118 @@ export async function getWaitlistWithEstimate(): Promise<WaitlistEntryWithEstima
   });
 }
 
+// ─── Mark Waitlist Notified ───────────────────────────────────────────────────
+
+export async function markWaitlistNotified(
+  id: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  if (!id) return { success: false, error: "Missing waitlist entry id" };
+  try {
+    await prisma.waitlist.update({
+      where: { id },
+      data: { status: "NOTIFIED", notifiedAt: new Date() },
+    });
+    revalidatePath("/dashboard/waitlist");
+    return { success: true };
+  } catch (err) {
+    console.error("[markWaitlistNotified]", err);
+    return { success: false, error: "Failed to mark as notified" };
+  }
+}
+
+// ─── Convert Waitlist Entry to Appointment (smart-slot variant) ───────────────
+
+export async function convertWaitlistToAppointment(
+  waitlistId: string,
+  slotData: {
+    date: string;
+    startTime: string;
+    staffId: string;
+    serviceId: string;
+  }
+): Promise<{ success: boolean; appointmentId?: string; error?: string }> {
+  if (!waitlistId) return { success: false, error: "Missing waitlist entry id" };
+
+  try {
+    const salon = await prisma.salon.findFirst();
+    if (!salon) return { success: false, error: "No salon found" };
+
+    const entry = await prisma.waitlist.findUnique({ where: { id: waitlistId } });
+    if (!entry) return { success: false, error: "Waitlist entry not found" };
+
+    const service = await prisma.service.findUnique({
+      where: { id: slotData.serviceId },
+      select: { id: true, price: true, durationMins: true },
+    });
+    if (!service) return { success: false, error: "Service not found" };
+
+    const result = await prisma.$transaction(async (tx) => {
+      const appointmentId = randomUUID();
+
+      const appointment = await tx.appointment.create({
+        data: {
+          id: appointmentId,
+          salonId: salon.id,
+          clientId: entry.clientId ?? null,
+          staffId: slotData.staffId,
+          date: slotData.date,
+          startTime: slotData.startTime,
+          totalAmount: service.price,
+          notes: entry.note ?? null,
+          AppointmentService: {
+            create: [{ serviceId: slotData.serviceId }],
+          },
+        },
+      });
+
+      await tx.waitlist.update({
+        where: { id: waitlistId },
+        data: { status: "BOOKED" as WaitlistStatus },
+      });
+
+      // Create a reminder for the client
+      const scheduledAt = new Date(`${slotData.date}T${slotData.startTime}:00`);
+      scheduledAt.setHours(scheduledAt.getHours() - 24); // 24h before
+      await tx.reminder.create({
+        data: {
+          id: randomUUID(),
+          salonId: salon.id,
+          appointmentId: appointment.id,
+          clientId: entry.clientId ?? null,
+          type: "APPOINTMENT_REMINDER",
+          status: "PENDING",
+          message: `Reminder: You have an appointment on ${slotData.date} at ${slotData.startTime}.`,
+          scheduledAt,
+        },
+      });
+
+      return appointment;
+    });
+
+    revalidatePath("/dashboard/waitlist");
+    revalidatePath("/dashboard/appointments");
+    return { success: true, appointmentId: result.id };
+  } catch (err) {
+    console.error("[convertWaitlistToAppointment]", err);
+    return { success: false, error: "Failed to convert waitlist entry to appointment" };
+  }
+}
+
+// ─── Get Available Slots For Waitlist Entry ───────────────────────────────────
+
+export async function getAvailableSlotsForWaitlist(
+  serviceId: string,
+  staffId?: string
+): Promise<import("@/lib/smart-scheduler").AvailableSlot[]> {
+  const { findNextAvailableSlots } = await import("@/lib/smart-scheduler");
+  return findNextAvailableSlots(prisma, {
+    serviceId,
+    staffId: staffId || undefined,
+    daysAhead: 14,
+    maxSlots: 5,
+  });
+}
+
 // ─── Get Waitlist Position For Service ────────────────────────────────────────
 
 export async function getWaitlistPositionForService(

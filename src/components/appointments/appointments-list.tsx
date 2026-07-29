@@ -2,29 +2,59 @@
 
 import * as React from "react";
 import { updateAppointmentStatus } from "@/app/actions/appointments";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { CheckoutDialog, type CheckoutAppointment } from "./checkout-dialog";
 import { AppointmentActionButtons } from "./appointment-action-buttons";
 import { RebookModal } from "./rebook-modal";
+import { RecurringSeriesBadge } from "./recurring-series-badge";
 import { toast } from "@/components/ui/sonner";
+
+/** Parse deposit amount from notes field. Returns null if no deposit marker found. */
+function parseDepositFromNotes(notes: string | null): number | null {
+  if (!notes) return null;
+  const match = notes.match(/__deposit:(\d+(?:\.\d+)?)/);
+  return match ? parseFloat(match[1]) : null;
+}
+
+/** Parse __checkedInAt ISO timestamp from notes JSON. */
+function getCheckedInAt(notes: string | null): string | null {
+  if (!notes) return null;
+  try {
+    const parsed = JSON.parse(notes);
+    return parsed.__checkedInAt ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function getElapsedLabel(checkedInAt: string): string {
+  const diff = Math.floor((Date.now() - new Date(checkedInAt).getTime()) / 60000);
+  if (diff < 1) return "just now";
+  if (diff === 1) return "1 min ago";
+  return `${diff} min ago`;
+}
 
 const STATUS_LABEL: Record<string, string> = {
   SCHEDULED: "Scheduled",
+  IN_PROGRESS: "In Progress",
   COMPLETED: "Completed",
   CANCELLED: "Cancelled",
   NO_SHOW: "No Show",
 };
 
 const STATUS_CLASS: Record<string, string> = {
-  SCHEDULED: "bg-[#F48E16]/20 text-[#F48E16]",
+  SCHEDULED: "bg-blue-500/20 text-blue-400",
+  IN_PROGRESS: "bg-amber-500/20 text-amber-400",
   COMPLETED: "bg-primary/20 text-primary",
-  CANCELLED: "bg-[#F41666]/20 text-[#F41666]",
-  NO_SHOW: "bg-muted text-muted-foreground",
+  CANCELLED: "bg-zinc-500/20 text-zinc-400",
+  NO_SHOW: "bg-rose-500/20 text-rose-400",
 };
 
 const STATUS_CYCLE: Record<string, string> = {
-  SCHEDULED: "COMPLETED",
+  SCHEDULED: "IN_PROGRESS",
+  IN_PROGRESS: "COMPLETED",
   COMPLETED: "CANCELLED",
   CANCELLED: "SCHEDULED",
   NO_SHOW: "SCHEDULED",
@@ -61,7 +91,7 @@ function StatusButton({ appointmentId, status }: { appointmentId: string; status
     setPending(true);
     const result = await updateAppointmentStatus(
       appointmentId,
-      next as "SCHEDULED" | "COMPLETED" | "CANCELLED" | "NO_SHOW"
+      next as "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | "NO_SHOW"
     );
     setPending(false);
     if (result.success) {
@@ -85,10 +115,40 @@ function StatusButton({ appointmentId, status }: { appointmentId: string; status
       }}
       disabled={pending}
       title={`Click to advance status (next: ${STATUS_LABEL[STATUS_CYCLE[currentStatus] ?? "SCHEDULED"]})`}
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-opacity cursor-pointer border-0 select-none ${STATUS_CLASS[currentStatus] ?? "bg-muted text-muted-foreground"} ${pending ? "opacity-50 pointer-events-none" : "hover:opacity-80"}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold transition-opacity cursor-pointer border-0 select-none ${STATUS_CLASS[currentStatus] ?? "bg-muted text-muted-foreground"} ${pending ? "opacity-50 pointer-events-none" : "hover:opacity-80"}`}
     >
+      {currentStatus === "IN_PROGRESS" && (
+        <span className="relative flex h-1.5 w-1.5">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-400" />
+        </span>
+      )}
       {pending ? "…" : STATUS_LABEL[currentStatus] ?? currentStatus}
     </button>
+  );
+}
+
+/** Shows elapsed time for IN_PROGRESS appointments. */
+function InProgressIndicator({ notes }: { notes: string | null }) {
+  const checkedInAt = getCheckedInAt(notes);
+  const [label, setLabel] = React.useState(
+    checkedInAt ? getElapsedLabel(checkedInAt) : null
+  );
+
+  React.useEffect(() => {
+    if (!checkedInAt) return;
+    setLabel(getElapsedLabel(checkedInAt));
+    const id = setInterval(() => setLabel(getElapsedLabel(checkedInAt)), 30000);
+    return () => clearInterval(id);
+  }, [checkedInAt]);
+
+  if (!label) return null;
+
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 font-medium">
+      <Clock className="w-3 h-3" />
+      Started {label}
+    </span>
   );
 }
 
@@ -183,6 +243,11 @@ export function AppointmentsList({
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-sm font-bold text-foreground">{appt.startTime}</p>
                         <StatusButton appointmentId={appt.id} status={appt.status} />
+                        {parseDepositFromNotes(appt.notes) !== null && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-blue-500/50 text-blue-500 font-bold">
+                            DEP
+                          </Badge>
+                        )}
                       </div>
                       <p className="font-semibold text-foreground mt-0.5">
                         {appt.client?.name ?? "Walk-in"}
@@ -190,7 +255,13 @@ export function AppointmentsList({
                       <p className="text-xs text-muted-foreground mt-0.5">
                         {appt.services.map((s) => s.service.name).join(", ") || "—"}
                       </p>
+                      <RecurringSeriesBadge appointment={{ id: appt.id, notes: appt.notes, date: appt.date }} />
                       <p className="text-xs text-muted-foreground mt-0.5">{appt.staff.name}</p>
+                      {appt.status === "IN_PROGRESS" && (
+                        <div className="mt-1">
+                          <InProgressIndicator notes={appt.notes} />
+                        </div>
+                      )}
                     </div>
                     <div className="flex flex-col items-end gap-2 flex-shrink-0">
                       <p className="text-sm font-bold text-foreground">{fmt(appt.totalAmount)}</p>
@@ -228,12 +299,23 @@ export function AppointmentsList({
                     </div>
                     <div className="w-px h-12 bg-border flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-foreground">
-                        {appt.client?.name ?? "Walk-in"}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-foreground">
+                          {appt.client?.name ?? "Walk-in"}
+                        </p>
+                        {parseDepositFromNotes(appt.notes) !== null && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-blue-500/50 text-blue-500 font-bold">
+                            DEP
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         {appt.services.map((s) => s.service.name).join(", ") || "—"}
                       </p>
+                      <RecurringSeriesBadge appointment={{ id: appt.id, notes: appt.notes, date: appt.date }} />
+                      {appt.status === "IN_PROGRESS" && (
+                        <InProgressIndicator notes={appt.notes} />
+                      )}
                     </div>
                     <div className="text-right flex-shrink-0">
                       <p className="text-sm font-medium text-muted-foreground">

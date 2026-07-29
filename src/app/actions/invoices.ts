@@ -5,6 +5,41 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getClientTier, pointsToDiscount } from "@/lib/loyalty-tiers";
 
+// ─── Invoice number sequencing ────────────────────────────────────────────────
+
+/**
+ * Generates the next sequential invoice number for a salon.
+ * Finds the highest existing invoiceNumber stored in the note field as "#INV-XXXX",
+ * then returns prefix + zero-padded next number (e.g., "INV-0042").
+ */
+async function getNextInvoiceNumber(salonId: string): Promise<string> {
+  const salon = await prisma.salon.findUnique({
+    where: { id: salonId },
+    select: { invoicePrefix: true },
+  });
+  const prefix = salon?.invoicePrefix ?? "INV";
+  const pattern = `#${prefix}-`;
+
+  // Find all invoices for this salon that have a note matching the pattern
+  const invoices = await prisma.invoice.findMany({
+    where: { salonId, note: { contains: pattern } },
+    select: { note: true },
+  });
+
+  let maxNum = 0;
+  for (const inv of invoices) {
+    if (!inv.note) continue;
+    // Extract number from "#INV-0042" style note (may have other text too)
+    const match = inv.note.match(new RegExp(`#${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-(\\d+)`));
+    if (match) {
+      const n = parseInt(match[1], 10);
+      if (n > maxNum) maxNum = n;
+    }
+  }
+
+  return `${prefix}-${String(maxNum + 1).padStart(4, "0")}`;
+}
+
 export async function getInvoice(id: string) {
   if (!id) return null;
 
@@ -12,7 +47,15 @@ export async function getInvoice(id: string) {
     prisma.invoice.findUnique({
       where: { id },
       include: {
-        Client: true,
+        Client: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+            loyaltyPoints: true,
+          },
+        },
         Appointment: {
           include: {
             Staff: true,
@@ -21,6 +64,7 @@ export async function getInvoice(id: string) {
             },
           },
         },
+        InvoiceItem: true,
         PartialPayment: { orderBy: { createdAt: "asc" } },
       },
     }),
@@ -30,9 +74,15 @@ export async function getInvoice(id: string) {
 
   if (!invoice) return null;
 
-  // Auto-generate invoice number: prefix + 4-digit sequence based on count
+  // Prefer sequential number stored in note field (#INV-XXXX), else derive from count
   const prefix = salon?.invoicePrefix ?? "INV";
-  const invoiceNumber = `${prefix}-${String(invoiceCount).padStart(4, "0")}`;
+  let invoiceNumber: string;
+  if (invoice.note) {
+    const match = invoice.note.match(new RegExp(`#(${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-\\d+)`));
+    invoiceNumber = match ? match[1] : `${prefix}-${String(invoiceCount).padStart(4, "0")}`;
+  } else {
+    invoiceNumber = `${prefix}-${String(invoiceCount).padStart(4, "0")}`;
+  }
 
   return { invoice, salon, invoiceNumber };
 }
@@ -53,6 +103,9 @@ export async function createInvoice(data: {
   }
 
   try {
+    // Generate sequential invoice number
+    const invoiceNum = await getNextInvoiceNumber(data.salonId);
+
     const invoice = await prisma.invoice.create({
       data: {
         id: randomUUID(),
@@ -62,6 +115,8 @@ export async function createInvoice(data: {
         total: data.total,
         paymentMethod: data.paymentMethod ?? "CASH",
         status: "PAID",
+        // Store sequential invoice number in the note field as "#INV-XXXX"
+        note: `#${invoiceNum}`,
       },
     });
 
@@ -264,5 +319,156 @@ export async function voidInvoices(
   } catch (err) {
     console.error("[voidInvoices]", err);
     return { success: false, error: "Failed to void invoices" };
+  }
+}
+
+// ─── Convenience aliases for invoice detail modal ────────────────────────────
+
+/**
+ * Add a partial payment to an invoice.
+ * Returns the new remaining balance.
+ */
+export async function addPartialPayment(
+  invoiceId: string,
+  data: { amount: number; method: string; note?: string }
+): Promise<{ success: true; newBalance?: number } | { success: false; error: string }> {
+  if (!invoiceId) return { success: false, error: "invoiceId is required" };
+  if (!data.amount || isNaN(data.amount) || data.amount <= 0) {
+    return { success: false, error: "Invalid amount" };
+  }
+
+  try {
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: { PartialPayment: true },
+    });
+    if (!invoice) return { success: false, error: "Invoice not found" };
+    if (invoice.status === "VOID") return { success: false, error: "Cannot add payment to a voided invoice" };
+
+    const paidSoFar = invoice.PartialPayment.reduce((s, p) => s + p.amount, 0);
+    const remaining = invoice.total - paidSoFar;
+
+    if (data.amount > remaining + 0.001) {
+      return {
+        success: false,
+        error: `Amount exceeds remaining balance of ${remaining.toFixed(2)}`,
+      };
+    }
+
+    await prisma.partialPayment.create({
+      data: {
+        id: randomUUID(),
+        invoiceId,
+        amount: data.amount,
+        method: data.method || "CASH",
+        note: data.note ?? null,
+      },
+    });
+
+    const newBalance = Math.max(0, remaining - data.amount);
+
+    // Auto-mark paid if fully covered
+    if (data.amount >= remaining - 0.001) {
+      await prisma.invoice.update({
+        where: { id: invoiceId },
+        data: { status: "PAID", paidAt: new Date() },
+      });
+    }
+
+    revalidatePath(`/dashboard/invoices/${invoiceId}`);
+    revalidatePath("/dashboard/invoices");
+    return { success: true, newBalance };
+  } catch (err) {
+    console.error("[addPartialPayment]", err);
+    return { success: false, error: "Failed to add partial payment" };
+  }
+}
+
+// ─── Loyalty points redemption in invoice flow ────────────────────────────────
+
+/**
+ * Redeems loyalty points against an invoice.
+ * - Validates the client has enough points.
+ * - Calculates the dollar discount ($0.01 per point).
+ * - Deducts points from the client and records a LOYALTY ledger entry.
+ * - Updates the invoice discount field.
+ */
+export async function redeemLoyaltyPoints(
+  invoiceId: string,
+  clientId: string,
+  pointsToRedeem: number
+): Promise<
+  | { success: true; discount: number; newPointsTotal: number }
+  | { success: false; error: string }
+> {
+  if (!invoiceId) return { success: false, error: "invoiceId is required" };
+  if (!clientId) return { success: false, error: "clientId is required" };
+  if (!Number.isInteger(pointsToRedeem) || pointsToRedeem <= 0) {
+    return { success: false, error: "pointsToRedeem must be a positive integer" };
+  }
+
+  try {
+    const [client, invoice] = await Promise.all([
+      prisma.client.findUnique({
+        where: { id: clientId },
+        select: { loyaltyPoints: true },
+      }),
+      prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        select: { status: true, total: true, discount: true, clientId: true },
+      }),
+    ]);
+
+    if (!client) return { success: false, error: "Client not found" };
+    if (!invoice) return { success: false, error: "Invoice not found" };
+    if (invoice.status === "VOID") {
+      return { success: false, error: "Cannot apply points to a voided invoice" };
+    }
+    if (invoice.clientId !== clientId) {
+      return { success: false, error: "Client does not match invoice" };
+    }
+    if (client.loyaltyPoints < pointsToRedeem) {
+      return {
+        success: false,
+        error: `Insufficient points. Client has ${client.loyaltyPoints} pts, requested ${pointsToRedeem} pts.`,
+      };
+    }
+
+    const discount = pointsToDiscount(client.loyaltyPoints, pointsToRedeem);
+    const newDiscount = Math.min(invoice.discount + discount, invoice.total);
+
+    // Deduct points and update invoice discount atomically (two writes, same tx-ish)
+    const [updatedClient] = await Promise.all([
+      prisma.client.update({
+        where: { id: clientId },
+        data: { loyaltyPoints: { decrement: pointsToRedeem } },
+        select: { loyaltyPoints: true },
+      }),
+      prisma.invoice.update({
+        where: { id: invoiceId },
+        data: { discount: newDiscount },
+      }),
+      prisma.ledgerEntry.create({
+        data: {
+          id: randomUUID(),
+          clientId,
+          type: "LOYALTY",
+          amount: -pointsToRedeem,
+          note: `Redeemed ${pointsToRedeem} pts on invoice ${invoiceId} (−$${discount.toFixed(2)})`,
+        },
+      }),
+    ]);
+
+    revalidatePath(`/dashboard/invoices/${invoiceId}`);
+    revalidatePath(`/dashboard/clients/${clientId}`);
+
+    return {
+      success: true,
+      discount: newDiscount,
+      newPointsTotal: updatedClient.loyaltyPoints,
+    };
+  } catch (err) {
+    console.error("[redeemLoyaltyPoints]", err);
+    return { success: false, error: "Failed to redeem loyalty points" };
   }
 }

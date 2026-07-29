@@ -14,19 +14,118 @@ import {
   Phone,
   Mail,
   Clock,
-  BadgeDollarSign,
+  TrendingUp,
+  AlertTriangle,
+  CheckCircle2,
 } from "lucide-react";
 import { RebookForm } from "./rebook-form";
 import { ThankYouButton } from "./thank-you-button";
 import { CopyLinkButton } from "./copy-link-button";
 import { SendSmsReviewButton } from "./send-sms-review-button";
 import { AddLoyaltyPointsButton } from "./add-loyalty-points-button";
+import { RebookSuggestion } from "./rebook-suggestion";
+import { QuickNotes } from "./quick-notes";
 
 export const dynamic = "force-dynamic";
 
 interface PageProps {
   params: Promise<{ id: string }>;
 }
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Compute suggested return date (ISO YYYY-MM-DD) based on service names. */
+function computeSuggestedDate(appointmentDate: string, serviceNames: string[]): string {
+  const lower = serviceNames.map((s) => s.toLowerCase());
+  let daysToAdd: number;
+
+  if (lower.some((s) => s.includes("color"))) {
+    daysToAdd = 28; // 4 weeks
+  } else if (lower.some((s) => s.includes("blowout") || s.includes("blowdry") || s.includes("blow dry"))) {
+    daysToAdd = 10; // 1.5 weeks
+  } else {
+    daysToAdd = 42; // 6 weeks
+  }
+
+  const [y, m, d] = appointmentDate.split("-").map(Number);
+  const base = new Date(y, m - 1, d);
+  base.setDate(base.getDate() + daysToAdd);
+
+  const yy = base.getFullYear();
+  const mm = String(base.getMonth() + 1).padStart(2, "0");
+  const dd = String(base.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+/** Compute avg days between visits from a sorted list of ISO date strings. */
+function computeAvgFrequencyDays(dates: string[]): number | null {
+  if (dates.length < 2) return null;
+  const gaps: number[] = [];
+  for (let i = 1; i < dates.length; i++) {
+    const [y1, m1, d1] = dates[i - 1].split("-").map(Number);
+    const [y2, m2, d2] = dates[i].split("-").map(Number);
+    const ms = new Date(y2, m2 - 1, d2).getTime() - new Date(y1, m1 - 1, d1).getTime();
+    gaps.push(ms / (1000 * 60 * 60 * 24));
+  }
+  return Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length);
+}
+
+/** Count consecutive months (most recent streak) that each have at least one visit. */
+function computeStreak(dates: string[]): number {
+  if (dates.length === 0) return 0;
+
+  // Build a set of "YYYY-MM" strings
+  const monthSet = new Set(dates.map((d) => d.slice(0, 7)));
+
+  // Walk backwards from the most recent month and count consecutive months
+  const latestDate = dates[dates.length - 1];
+  const [ly, lm] = latestDate.split("-").map(Number);
+
+  let streak = 0;
+  let year = ly;
+  let month = lm;
+
+  while (true) {
+    const key = `${year}-${String(month).padStart(2, "0")}`;
+    if (!monthSet.has(key)) break;
+    streak++;
+    month--;
+    if (month === 0) {
+      month = 12;
+      year--;
+    }
+    // Safety: cap at 120 months
+    if (streak > 120) break;
+  }
+
+  return streak;
+}
+
+/** Determine churn risk given last-visit days ago and avg frequency. */
+function computeChurnRisk(
+  daysSinceLastVisit: number | null,
+  avgFrequency: number | null
+): { label: "Active" | "At-Risk" | "High Risk"; colorClass: string; bgClass: string; icon: "check" | "warning" | "alert" } {
+  if (daysSinceLastVisit === null) {
+    return { label: "Active", colorClass: "text-emerald-500", bgClass: "bg-emerald-500/15", icon: "check" };
+  }
+
+  if (daysSinceLastVisit > 90) {
+    return { label: "High Risk", colorClass: "text-[#F41666]", bgClass: "bg-[#F41666]/15", icon: "alert" };
+  }
+
+  if (daysSinceLastVisit > 45) {
+    return { label: "At-Risk", colorClass: "text-amber-500", bgClass: "bg-amber-500/15", icon: "warning" };
+  }
+
+  if (avgFrequency !== null && daysSinceLastVisit > avgFrequency * 1.5) {
+    return { label: "At-Risk", colorClass: "text-amber-500", bgClass: "bg-amber-500/15", icon: "warning" };
+  }
+
+  return { label: "Active", colorClass: "text-emerald-500", bgClass: "bg-emerald-500/15", icon: "check" };
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function FollowUpPage({ params }: PageProps) {
   const { id } = await params;
@@ -86,7 +185,7 @@ export default async function FollowUpPage({ params }: PageProps) {
   }
 
   const serviceNames = appointment.AppointmentService.map((as) => as.Service.name);
-  const reviewLink = `${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/book/${appointment.Salon.slug}/review/${id}`;
+  const reviewLink = `${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/portal/${appointment.Salon.slug}/review/${id}`;
 
   const client = appointment.Client;
 
@@ -95,6 +194,8 @@ export default async function FollowUpPage({ params }: PageProps) {
 
   // Last visit = most recent completed appointment before this one
   let lastVisitLabel: string | null = null;
+  let lastVisitDaysAgo: number | null = null;
+
   if (client) {
     const lastVisit = await prisma.appointment.findFirst({
       where: {
@@ -107,9 +208,33 @@ export default async function FollowUpPage({ params }: PageProps) {
     });
     if (lastVisit) {
       const [y, m, d] = lastVisit.date.split("-").map(Number);
-      lastVisitLabel = new Date(y, m - 1, d).toLocaleDateString("en", { dateStyle: "medium" });
+      const lastDate = new Date(y, m - 1, d);
+      lastVisitLabel = lastDate.toLocaleDateString("en", { dateStyle: "medium" });
+
+      const [ty, tm, td] = appointment.date.split("-").map(Number);
+      const thisDate = new Date(ty, tm - 1, td);
+      lastVisitDaysAgo = Math.round(
+        (thisDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24)
+      );
     }
   }
+
+  // Get all completed appointments for this client to compute retention metrics
+  const clientHistory = client
+    ? await prisma.appointment.findMany({
+        where: { clientId: client.id, status: "COMPLETED" },
+        orderBy: { date: "asc" },
+        select: { date: true },
+      })
+    : [];
+
+  const historyDates = clientHistory.map((a) => a.date);
+  const avgFrequency = computeAvgFrequencyDays(historyDates);
+  const streak = computeStreak(historyDates);
+  const churnRisk = computeChurnRisk(lastVisitDaysAgo, avgFrequency);
+
+  // Suggested return date
+  const suggestedDate = computeSuggestedDate(appointment.date, serviceNames);
 
   return (
     <div className="p-4 md:p-8 max-w-2xl mx-auto">
@@ -323,6 +448,96 @@ export default async function FollowUpPage({ params }: PageProps) {
             </CardContent>
           </Card>
         )}
+
+        {/* 5 — Rebook suggestion (smart recommended date) */}
+        <RebookSuggestion
+          appointmentId={id}
+          services={serviceNames}
+          appointmentDate={appointment.date}
+          staffName={appointment.Staff.name}
+          suggestedDate={suggestedDate}
+        />
+
+        {/* 6 — Retention metrics (client only) */}
+        {client && (
+          <Card className="bg-card border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <TrendingUp className="w-5 h-5 text-primary" />
+                Retention Metrics
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Client visit patterns and churn risk.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Churn risk badge */}
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Status</span>
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${churnRisk.bgClass} ${churnRisk.colorClass}`}
+                >
+                  {churnRisk.icon === "check" && (
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  )}
+                  {churnRisk.icon === "warning" && (
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                  )}
+                  {churnRisk.icon === "alert" && (
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                  )}
+                  {churnRisk.label}
+                </span>
+              </div>
+
+              <Separator />
+
+              <div className="grid grid-cols-1 gap-3 text-sm">
+                {/* Visit frequency */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Clock className="w-4 h-4 flex-shrink-0" />
+                    <span>Avg visit frequency</span>
+                  </div>
+                  <span className="font-medium text-foreground">
+                    {avgFrequency !== null
+                      ? `Every ${avgFrequency} days`
+                      : "Not enough data"}
+                  </span>
+                </div>
+
+                {/* Days since last visit */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <CalendarDays className="w-4 h-4 flex-shrink-0" />
+                    <span>Since last visit</span>
+                  </div>
+                  <span className="font-medium text-foreground">
+                    {lastVisitDaysAgo !== null
+                      ? `${lastVisitDaysAgo} day${lastVisitDaysAgo === 1 ? "" : "s"}`
+                      : "First visit"}
+                  </span>
+                </div>
+
+                {/* Streak */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <TrendingUp className="w-4 h-4 flex-shrink-0" />
+                    <span>Visit streak</span>
+                  </div>
+                  <span className="font-medium text-foreground">
+                    {streak > 0
+                      ? `${streak} month${streak === 1 ? "" : "s"} in a row`
+                      : "—"}
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 7 — Quick notes */}
+        <QuickNotes appointmentId={id} notesJson={appointment.notes} />
       </div>
     </div>
   );

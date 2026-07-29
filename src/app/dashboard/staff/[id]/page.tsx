@@ -27,7 +27,8 @@ import { StaffServiceManager } from "@/components/staff/staff-service-manager";
 import { CommissionSettingsPanel } from "@/components/staff/commission-settings-panel";
 import { TimesheetTab } from "@/components/staff/timesheet-tab";
 import { getTimeEntries } from "@/app/actions/timetracking";
-import { getStaffUnavailability } from "@/app/actions/settings";
+import { getStaffUnavailability, getStaffGoals } from "@/app/actions/settings";
+import { calculateAchievements, ACHIEVEMENTS, TIER_POINTS } from "@/lib/achievements";
 
 export const dynamic = "force-dynamic";
 
@@ -116,7 +117,7 @@ export default async function StaffDetailPage({
   const tipsEarnedThisMonth = staffTipAgg._sum.tip ?? 0;
   const tipCountThisMonth = staffTipAgg._count.tip ?? 0;
 
-  const [staff, salon, allServices, staffUnavailability, timesheetEntries] = await Promise.all([
+  const [staff, salon, allServices, staffUnavailability, timesheetEntries, staffGoals, achievementsData] = await Promise.all([
     prisma.staff.findUnique({
       where: { id },
       include: {
@@ -151,11 +152,16 @@ export default async function StaffDetailPage({
       new Date(today.getFullYear(), today.getMonth() - 2, 1),
       new Date(today.getFullYear(), today.getMonth() + 2, 0)
     ),
+    getStaffGoals(),
+    calculateAchievements(prisma, id),
   ]);
 
   if (!staff) notFound();
 
   const currency = salon?.currency ?? "USD";
+  const monthGoal = staffGoals[id] ?? null;
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const daysRemaining = daysInMonth - today.getDate();
   const fmt = (n: number) =>
     new Intl.NumberFormat("en", {
       style: "currency",
@@ -180,6 +186,7 @@ export default async function StaffDetailPage({
     0
   );
   const commissionThisMonth = (revenueThisMonth * staff.commissionPct) / 100;
+  const goalPct = monthGoal && monthGoal > 0 ? Math.min(100, (revenueThisMonth / monthGoal) * 100) : null;
 
   // Last 30 days for weekly chart reference
   const thirtyDaysAgo = new Date(today);
@@ -446,6 +453,7 @@ export default async function StaffDetailPage({
             <Clock className="w-3.5 h-3.5 mr-1.5" />
             Timesheet
           </TabsTrigger>
+          <TabsTrigger value="achievements">🏆 Achievements</TabsTrigger>
         </TabsList>
 
         {/* ── Overview ───────────────────────────────────────────────────── */}
@@ -898,6 +906,58 @@ export default async function StaffDetailPage({
         {/* ── Commission ─────────────────────────────────────────────────── */}
         <TabsContent value="commission">
           <div className="space-y-4">
+            {/* Monthly Goal Progress */}
+            {monthGoal !== null && goalPct !== null && (
+              <Card className="bg-card border-border">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">
+                        Monthly Goal Progress
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {daysRemaining > 0
+                          ? `${daysRemaining} day${daysRemaining !== 1 ? "s" : ""} remaining this month`
+                          : "Last day of the month"}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p
+                        className={`text-xl font-bold tabular-nums ${
+                          goalPct >= 80
+                            ? "text-emerald-500"
+                            : goalPct >= 50
+                            ? "text-amber-500"
+                            : "text-[#F41666]"
+                        }`}
+                      >
+                        {goalPct.toFixed(0)}%
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {fmt(revenueThisMonth)} / {fmt(monthGoal)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="h-3 bg-secondary rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        goalPct >= 80
+                          ? "bg-emerald-500"
+                          : goalPct >= 50
+                          ? "bg-amber-500"
+                          : "bg-[#F41666]"
+                      }`}
+                      style={{ width: `${goalPct}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between mt-1.5 text-xs text-muted-foreground">
+                    <span>$0</span>
+                    <span>Goal: {fmt(monthGoal)}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Card className="bg-card border-border">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
@@ -964,6 +1024,192 @@ export default async function StaffDetailPage({
             initialYear={today.getFullYear()}
             initialMonth={today.getMonth()}
           />
+        </TabsContent>
+
+        {/* ── Achievements ───────────────────────────────────────────────── */}
+        <TabsContent value="achievements">
+          <div className="space-y-6">
+            {/* Performance stats summary */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card className="bg-card border-border">
+                <CardContent className="p-5">
+                  <p className="text-xs text-muted-foreground mb-1">All-time Appointments</p>
+                  <p className="text-3xl font-bold text-foreground tabular-nums">
+                    {totalAppointmentsAllTime}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="bg-card border-border">
+                <CardContent className="p-5">
+                  <p className="text-xs text-muted-foreground mb-1">All-time Revenue</p>
+                  <p className="text-3xl font-bold text-primary tabular-nums">
+                    {fmt(totalRevenue)}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="bg-card border-border">
+                <CardContent className="p-5">
+                  <p className="text-xs text-muted-foreground mb-1">Avg Rating</p>
+                  <p className="text-3xl font-bold text-amber-400 tabular-nums">
+                    {avgRating > 0 ? avgRating.toFixed(1) : "—"}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="bg-card border-border">
+                <CardContent className="p-5">
+                  <p className="text-xs text-muted-foreground mb-1">Best Month Revenue</p>
+                  <p className="text-3xl font-bold text-emerald-500 tabular-nums">
+                    {fmt(revenueThisMonth)}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">this month</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Earned Badges */}
+            {achievementsData.earned.length > 0 && (
+              <div>
+                <h3 className="text-lg font-bold text-foreground mb-4">
+                  Earned Badges
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">
+                    ({achievementsData.earned.length})
+                  </span>
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {achievementsData.earned.map((ach) => (
+                    <div
+                      key={ach.id}
+                      className={`rounded-2xl border bg-gradient-to-br ${ach.color} p-5`}
+                    >
+                      <div className="flex items-start gap-4">
+                        <span className="text-4xl flex-shrink-0">{ach.icon}</span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="font-bold text-foreground">{ach.name}</p>
+                            <span
+                              className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-full ${
+                                ach.tier === "gold"
+                                  ? "bg-amber-400/20 text-amber-400"
+                                  : ach.tier === "silver"
+                                  ? "bg-slate-400/20 text-slate-400"
+                                  : ach.tier === "platinum"
+                                  ? "bg-cyan-400/20 text-cyan-400"
+                                  : "bg-amber-700/20 text-amber-600"
+                              }`}
+                            >
+                              {ach.tier}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {ach.description}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            +{TIER_POINTS[ach.tier]} pts
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Progress toward unearned badges */}
+            {(() => {
+              const unearned = ACHIEVEMENTS.filter(
+                (a) => !achievementsData.earned.some((e) => e.id === a.id)
+              );
+              if (unearned.length === 0) return null;
+              return (
+                <div>
+                  <h3 className="text-lg font-bold text-foreground mb-4">
+                    In Progress
+                    <span className="ml-2 text-sm font-normal text-muted-foreground">
+                      ({unearned.length} remaining)
+                    </span>
+                  </h3>
+                  <div className="space-y-3">
+                    {unearned.map((ach) => {
+                      const current = achievementsData.progress[ach.id] ?? 0;
+                      const pct = Math.min(
+                        100,
+                        (current / ach.criteria.threshold) * 100
+                      );
+                      const remaining = Math.max(
+                        0,
+                        ach.criteria.threshold - current
+                      );
+                      const unit =
+                        ach.criteria.type === "revenue"
+                          ? `${fmt(remaining)} more`
+                          : ach.criteria.type === "rating"
+                          ? `need ${ach.criteria.threshold} avg`
+                          : `${remaining} more`;
+                      return (
+                        <Card key={ach.id} className="bg-card border-border">
+                          <CardContent className="p-4">
+                            <div className="flex items-center gap-4">
+                              <span className="text-2xl opacity-40 grayscale flex-shrink-0">
+                                {ach.icon}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-sm font-semibold text-foreground">
+                                      {ach.name}
+                                    </p>
+                                    <span
+                                      className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-full ${
+                                        ach.tier === "gold"
+                                          ? "bg-amber-400/10 text-amber-500/60"
+                                          : ach.tier === "silver"
+                                          ? "bg-slate-400/10 text-slate-400/60"
+                                          : "bg-amber-700/10 text-amber-600/60"
+                                      }`}
+                                    >
+                                      {ach.tier}
+                                    </span>
+                                  </div>
+                                  <span className="text-xs text-muted-foreground tabular-nums">
+                                    {ach.criteria.type === "rating"
+                                      ? `${current.toFixed(1)} / ${ach.criteria.threshold}`
+                                      : ach.criteria.type === "revenue"
+                                      ? `${fmt(current)} / ${fmt(ach.criteria.threshold)}`
+                                      : `${current} / ${ach.criteria.threshold}`}
+                                  </span>
+                                </div>
+                                <div className="h-2 bg-secondary rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-muted-foreground/40 rounded-full transition-all"
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {ach.description} — {unit} needed
+                                </p>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {achievementsData.earned.length === 0 &&
+              ACHIEVEMENTS.every(
+                (a) => (achievementsData.progress[a.id] ?? 0) === 0
+              ) && (
+                <div className="text-center py-16">
+                  <p className="text-4xl mb-3">🌱</p>
+                  <p className="text-muted-foreground">
+                    No achievements yet — keep going!
+                  </p>
+                </div>
+              )}
+          </div>
         </TabsContent>
       </Tabs>
     </div>

@@ -20,6 +20,7 @@ import {
   Receipt,
   Tag,
   Gift,
+  Package,
   Loader2,
   Zap,
 } from "lucide-react";
@@ -150,6 +151,7 @@ const ALL_TYPES: ResultType[] = [
   "invoice",
   "coupon",
   "giftCard",
+  "inventory",
 ];
 
 type FilterOption = "all" | ResultType;
@@ -170,6 +172,7 @@ const CATEGORY_LABEL: Record<ResultType, string> = {
   invoice: "Invoices",
   coupon: "Coupons",
   giftCard: "Gift Cards",
+  inventory: "Inventory",
 };
 
 // Map string icon names to Lucide components
@@ -181,6 +184,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Receipt,
   Tag,
   Gift,
+  Package,
 };
 
 function getIcon(name: string): React.ElementType {
@@ -591,6 +595,7 @@ export function CommandPalette() {
                           onHover={() =>
                             setActiveIndex(indexMap.get(item.id) ?? -1)
                           }
+                          query={query}
                         />
                       ))}
                     </div>
@@ -648,6 +653,24 @@ export function CommandPalette() {
 }
 
 // ---------------------------------------------------------------------------
+// Highlight matching query text
+// ---------------------------------------------------------------------------
+function HighlightMatch({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  const idx = text.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="rounded-sm bg-primary/20 text-primary not-italic">
+        {text.slice(idx, idx + query.length)}
+      </mark>
+      {text.slice(idx + query.length)}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Single result row
 // ---------------------------------------------------------------------------
 function ResultRow({
@@ -655,11 +678,13 @@ function ResultRow({
   isActive,
   onSelect,
   onHover,
+  query,
 }: {
   item: SearchResultItem;
   isActive: boolean;
   onSelect: () => void;
   onHover: () => void;
+  query?: string;
 }) {
   const Icon = getIcon(item.icon);
   return (
@@ -683,7 +708,11 @@ function ResultRow({
       />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium leading-tight text-foreground">
-          {item.title}
+          {query ? (
+            <HighlightMatch text={item.title} query={query} />
+          ) : (
+            item.title
+          )}
         </span>
         {item.subtitle && (
           <span className="block truncate text-xs text-muted-foreground">

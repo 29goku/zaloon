@@ -1,14 +1,21 @@
 import { Building2 } from "lucide-react";
 import { getBranches } from "@/app/actions/branches";
-import { BranchesManager } from "@/components/branches/branches-manager";
+import { prisma } from "@/lib/prisma";
+import { BranchesGrid } from "@/components/branches/branches-grid";
 
 export const dynamic = "force-dynamic";
 
 export default async function BranchesPage() {
-  const branches = await getBranches();
+  const [branches, staff] = await Promise.all([
+    getBranches(),
+    prisma.staff.findMany({
+      select: { id: true, name: true, avatar: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
 
   return (
-    <div className="p-8 max-w-3xl">
+    <div className="p-6 lg:p-8 max-w-5xl">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
@@ -16,12 +23,11 @@ export default async function BranchesPage() {
           Branches &amp; Locations
         </h1>
         <p className="text-muted-foreground mt-1">
-          Manage your salon locations. Each branch has its own contact details
-          and timezone.
+          Manage your salon locations. Assign staff, set hours, and configure each branch.
         </p>
       </div>
 
-      <BranchesManager initialBranches={branches} />
+      <BranchesGrid initialBranches={branches} allStaff={staff} />
     </div>
   );
 }

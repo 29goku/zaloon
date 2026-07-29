@@ -472,6 +472,109 @@ export async function scheduleRebookingReminder(
   }
 }
 
+// ── sendQuickMessage ──────────────────────────────────────────────────────────
+
+export async function sendQuickMessage(data: {
+  clientId: string;
+  channel: "SMS" | "EMAIL";
+  message: string;
+  scheduledAt?: string; // ISO string; if undefined → now
+}): Promise<{ success: boolean; reminderId?: string; error?: string }> {
+  if (!data.clientId) return { success: false, error: "clientId is required" };
+  if (!data.message?.trim()) return { success: false, error: "Message is required" };
+  if (!["SMS", "EMAIL"].includes(data.channel)) {
+    return { success: false, error: "Invalid channel" };
+  }
+
+  try {
+    const salonId = await getDefaultSalonId();
+    if (!salonId) return { success: false, error: "No salon found" };
+
+    const scheduledAt = data.scheduledAt ? new Date(data.scheduledAt) : new Date();
+    const isImmediate = !data.scheduledAt;
+
+    const reminder = await prisma.reminder.create({
+      data: {
+        id: randomUUID(),
+        salonId,
+        clientId: data.clientId,
+        type: data.channel,
+        status: "PENDING",
+        message: data.message.trim(),
+        scheduledAt,
+      },
+    });
+
+    // If sending now, mark as SENT immediately (simulated delivery)
+    if (isImmediate) {
+      await prisma.reminder.update({
+        where: { id: reminder.id },
+        data: { status: "SENT", sentAt: new Date() },
+      });
+    }
+
+    revalidatePath("/dashboard/communications");
+    revalidatePath("/dashboard/reminders");
+    return { success: true, reminderId: reminder.id };
+  } catch (err) {
+    console.error("[sendQuickMessage]", err);
+    return { success: false, error: "Failed to send message" };
+  }
+}
+
+// ── cancelScheduledMessage ────────────────────────────────────────────────────
+
+export async function cancelScheduledMessage(
+  reminderId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!reminderId) return { success: false, error: "reminderId is required" };
+
+  try {
+    const reminder = await prisma.reminder.findUnique({ where: { id: reminderId } });
+    if (!reminder) return { success: false, error: "Reminder not found" };
+    if (reminder.status === "SENT") {
+      return { success: false, error: "Cannot cancel an already-sent message" };
+    }
+
+    await prisma.reminder.update({
+      where: { id: reminderId },
+      data: { status: "CANCELLED" },
+    });
+
+    revalidatePath("/dashboard/communications");
+    revalidatePath("/dashboard/reminders");
+    return { success: true };
+  } catch (err) {
+    console.error("[cancelScheduledMessage]", err);
+    return { success: false, error: "Failed to cancel message" };
+  }
+}
+
+// ── retryFailedMessage ────────────────────────────────────────────────────────
+
+export async function retryFailedMessage(
+  reminderId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!reminderId) return { success: false, error: "reminderId is required" };
+
+  try {
+    const reminder = await prisma.reminder.findUnique({ where: { id: reminderId } });
+    if (!reminder) return { success: false, error: "Reminder not found" };
+
+    await prisma.reminder.update({
+      where: { id: reminderId },
+      data: { status: "PENDING", sentAt: null },
+    });
+
+    revalidatePath("/dashboard/communications");
+    revalidatePath("/dashboard/reminders");
+    return { success: true };
+  } catch (err) {
+    console.error("[retryFailedMessage]", err);
+    return { success: false, error: "Failed to retry message" };
+  }
+}
+
 // ── save notification preferences (stored in Salon.businessHours JSON blob) ───
 
 export type NotificationPrefs = {
@@ -518,6 +621,246 @@ export async function saveNotificationPrefs(
     console.error("[saveNotificationPrefs]", err);
     return { success: false, error: "Failed to save notification preferences" };
   }
+}
+
+// ── clear old sent reminders ──────────────────────────────────────────────────
+
+export async function clearOldReminders(
+  daysOld: number
+): Promise<{ success: true; count: number } | { success: false; error: string }> {
+  if (daysOld < 1) return { success: false, error: "daysOld must be >= 1" };
+  try {
+    const cutoff = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000);
+    const result = await prisma.reminder.deleteMany({
+      where: { status: "SENT", sentAt: { lt: cutoff } },
+    });
+    revalidatePath("/dashboard/reminders");
+    return { success: true, count: result.count };
+  } catch (err) {
+    console.error("[clearOldReminders]", err);
+    return { success: false, error: "Failed to clear old reminders" };
+  }
+}
+
+// ── Notification types ────────────────────────────────────────────────────────
+
+export type Notification = {
+  id: string;
+  type:
+    | "appointment_upcoming"
+    | "no_show"
+    | "review_received"
+    | "low_stock"
+    | "birthday"
+    | "pending_reminder"
+    | "time_off_request";
+  title: string;
+  message: string;
+  timestamp: string;
+  read: boolean;
+  link?: string;
+};
+
+// ── generate current notifications from DB state ──────────────────────────────
+
+export async function generateNotifications(): Promise<Notification[]> {
+  const salon = await prisma.salon.findFirst({ select: { id: true } });
+  if (!salon) return [];
+
+  const now = new Date();
+  const todayStr = now.toISOString().split("T")[0];
+  const twoHoursLater = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+  const twoHoursLaterStr = twoHoursLater.toTimeString().slice(0, 5);
+  const currentTimeStr = now.toTimeString().slice(0, 5);
+  const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+
+  const [upcomingAppts, noShows, recentReviews, pendingReminders, lowStock, birthdays, pendingTimeOff] =
+    await Promise.all([
+      // Upcoming appointments in next 2 hours
+      prisma.appointment.findMany({
+        where: {
+          salonId: salon.id,
+          date: todayStr,
+          startTime: { gte: currentTimeStr, lte: twoHoursLaterStr },
+          status: "SCHEDULED",
+        },
+        include: {
+          Client: { select: { id: true, name: true } },
+          Staff: { select: { id: true, name: true } },
+        },
+        take: 10,
+        orderBy: { startTime: "asc" },
+      }),
+      // No shows: SCHEDULED appointments from today that are past
+      prisma.appointment.findMany({
+        where: {
+          salonId: salon.id,
+          date: todayStr,
+          startTime: { lt: currentTimeStr },
+          status: "SCHEDULED",
+        },
+        include: {
+          Client: { select: { id: true, name: true } },
+          Staff: { select: { id: true, name: true } },
+        },
+        take: 10,
+        orderBy: { startTime: "desc" },
+      }),
+      // Reviews in last 48h
+      prisma.review.findMany({
+        where: {
+          salonId: salon.id,
+          createdAt: { gte: fortyEightHoursAgo },
+        },
+        include: {
+          Client: { select: { id: true, name: true } },
+        },
+        take: 10,
+        orderBy: { createdAt: "desc" },
+      }),
+      // Pending reminders
+      prisma.reminder.findMany({
+        where: { salonId: salon.id, status: "PENDING" },
+        include: {
+          Appointment: {
+            select: {
+              id: true,
+              date: true,
+              startTime: true,
+              Client: { select: { id: true, name: true } },
+            },
+          },
+        },
+        take: 10,
+        orderBy: { scheduledAt: "asc" },
+      }),
+      // Low stock items
+      prisma.inventoryItem.findMany({
+        where: { salonId: salon.id, minQuantity: { gt: 0 } },
+        select: { id: true, name: true, quantity: true, minQuantity: true, unit: true },
+        orderBy: { name: "asc" },
+      }),
+      // Client birthdays today
+      prisma.client.findMany({
+        where: { salonId: salon.id, birthday: { not: null } },
+        select: { id: true, name: true, birthday: true },
+      }),
+      // Pending time-off requests (not approved)
+      prisma.timeOff.findMany({
+        where: { approved: false },
+        include: { Staff: { select: { id: true, name: true } } },
+        take: 10,
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
+
+  const notifications: Notification[] = [];
+
+  // Upcoming appointments
+  for (const apt of upcomingAppts) {
+    const clientName = apt.Client?.name ?? "Walk-in";
+    notifications.push({
+      id: `appointment_upcoming:${apt.id}`,
+      type: "appointment_upcoming",
+      title: "Upcoming appointment",
+      message: `${clientName} with ${apt.Staff?.name ?? "Staff"} at ${apt.startTime}`,
+      timestamp: now.toISOString(),
+      read: false,
+      link: "/dashboard/appointments",
+    });
+  }
+
+  // No shows
+  for (const apt of noShows) {
+    const clientName = apt.Client?.name ?? "Walk-in";
+    notifications.push({
+      id: `no_show:${apt.id}`,
+      type: "no_show",
+      title: "Possible no-show",
+      message: `${clientName} — appointment at ${apt.startTime} has not been checked in`,
+      timestamp: now.toISOString(),
+      read: false,
+      link: "/dashboard/appointments",
+    });
+  }
+
+  // Reviews
+  for (const review of recentReviews) {
+    const clientName = review.Client?.name ?? "A client";
+    notifications.push({
+      id: `review_received:${review.id}`,
+      type: "review_received",
+      title: "New review received",
+      message: `${clientName} left a ${review.rating}-star review`,
+      timestamp: review.createdAt.toISOString(),
+      read: false,
+      link: "/dashboard/reviews",
+    });
+  }
+
+  // Low stock
+  const filteredLowStock = lowStock.filter((i) => i.quantity <= i.minQuantity);
+  for (const item of filteredLowStock) {
+    notifications.push({
+      id: `low_stock:${item.id}`,
+      type: "low_stock",
+      title: "Low stock alert",
+      message: `${item.name}: ${item.quantity} ${item.unit} remaining (min: ${item.minQuantity})`,
+      timestamp: now.toISOString(),
+      read: false,
+      link: "/dashboard/inventory",
+    });
+  }
+
+  // Birthdays today
+  const todayMM = now.getMonth();
+  const todayDD = now.getDate();
+  for (const client of birthdays) {
+    if (!client.birthday) continue;
+    if (client.birthday.getMonth() === todayMM && client.birthday.getDate() === todayDD) {
+      notifications.push({
+        id: `birthday:${client.id}`,
+        type: "birthday",
+        title: "Client birthday today",
+        message: `${client.name}'s birthday is today`,
+        timestamp: now.toISOString(),
+        read: false,
+        link: "/dashboard/clients",
+      });
+    }
+  }
+
+  // Pending reminders
+  for (const reminder of pendingReminders) {
+    const appt = reminder.Appointment;
+    const label = appt?.Client?.name
+      ? `${appt.Client.name} — ${appt.date} ${appt.startTime}`
+      : `${reminder.type} reminder`;
+    notifications.push({
+      id: `pending_reminder:${reminder.id}`,
+      type: "pending_reminder",
+      title: "Pending reminder",
+      message: `${reminder.type}: ${label}`,
+      timestamp: reminder.scheduledAt.toISOString(),
+      read: false,
+      link: "/dashboard/reminders",
+    });
+  }
+
+  // Time-off requests
+  for (const req of pendingTimeOff) {
+    notifications.push({
+      id: `time_off_request:${req.id}`,
+      type: "time_off_request",
+      title: "Time-off request pending",
+      message: `${req.Staff?.name ?? "Staff"} requested time off from ${req.startDate} to ${req.endDate}`,
+      timestamp: req.createdAt.toISOString(),
+      read: false,
+      link: "/dashboard/staff/time-off",
+    });
+  }
+
+  return notifications;
 }
 
 // ── load notification preferences ────────────────────────────────────────────

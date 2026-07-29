@@ -66,7 +66,7 @@ export type CreateAppointmentInput = z.infer<typeof createAppointmentSchema>;
 export async function createAppointment(
   input: CreateAppointmentInput
 ): Promise<
-  | { success: true; id: string; shiftWarning?: string; warnings?: ConflictInfo[] }
+  | { success: true; id: string; shiftWarning?: string; warnings?: ConflictInfo[]; remindersScheduled?: number }
   | { success: false; error: string; conflicts?: ConflictInfo[] }
 > {
   const parsed = createAppointmentSchema.safeParse(input);
@@ -151,8 +151,9 @@ export async function createAppointment(
     });
 
     // ── Auto-schedule reminders driven by ReminderSettings ───────────────────
+    let remindersScheduled = 0;
     try {
-      await generateRemindersForAppointment(appointment.id, salon.id);
+      remindersScheduled = await generateRemindersForAppointment(appointment.id, salon.id);
     } catch (reminderErr) {
       // Non-fatal: reminder failure should never block appointment creation
       console.error("[createAppointment] reminder scheduling failed", reminderErr)
@@ -163,6 +164,7 @@ export async function createAppointment(
       success: true,
       id: appointment.id,
       shiftWarning,
+      remindersScheduled,
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   } catch (err) {
@@ -430,6 +432,7 @@ export async function markNoShow(
     }
 
     revalidatePath("/dashboard/appointments");
+    revalidatePath("/dashboard/checkin");
     return { success: true };
   } catch (err) {
     console.error("[markNoShow]", err);
@@ -552,6 +555,93 @@ export async function checkoutAppointment(
   }
 }
 
+// ─── Check-in client (SCHEDULED → IN_PROGRESS, records actual start time) ────
+
+export async function checkInClient(
+  appointmentId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!appointmentId) return { success: false, error: "Missing appointment id" };
+
+  try {
+    const existing = await prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      select: { notes: true, status: true },
+    });
+    if (!existing) return { success: false, error: "Appointment not found" };
+
+    // Preserve existing notes JSON and inject checkedInAt
+    let notesObj: Record<string, unknown> = {};
+    if (existing.notes) {
+      try {
+        notesObj = JSON.parse(existing.notes);
+      } catch {
+        notesObj = { general: existing.notes };
+      }
+    }
+    notesObj.__checkedInAt = new Date().toISOString();
+
+    await prisma.appointment.update({
+      where: { id: appointmentId },
+      data: {
+        status: "IN_PROGRESS",
+        notes: JSON.stringify(notesObj),
+      },
+    });
+
+    revalidatePath("/dashboard/appointments");
+    revalidatePath("/dashboard/checkin");
+    return { success: true };
+  } catch (err) {
+    console.error("[checkInClient]", err);
+    return { success: false, error: "Failed to check in client" };
+  }
+}
+
+// ─── Undo status (revert to a previous status) ────────────────────────────────
+
+export async function undoStatus(
+  appointmentId: string,
+  prevStatus: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!appointmentId) return { success: false, error: "Missing appointment id" };
+  const valid = ["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"];
+  if (!valid.includes(prevStatus)) {
+    return { success: false, error: `Invalid status: ${prevStatus}` };
+  }
+
+  try {
+    await prisma.appointment.update({
+      where: { id: appointmentId },
+      data: { status: prevStatus },
+    });
+    revalidatePath("/dashboard/appointments");
+    revalidatePath("/dashboard/checkin");
+    return { success: true };
+  } catch (err) {
+    console.error("[undoStatus]", err);
+    return { success: false, error: "Failed to undo status" };
+  }
+}
+
+// ─── Get today's appointments for check-in board ──────────────────────────────
+
+export async function getTodayAppointments() {
+  const today = new Date().toISOString().split("T")[0];
+  return prisma.appointment.findMany({
+    where: { date: today, status: { not: "CANCELLED" } },
+    orderBy: { startTime: "asc" },
+    include: {
+      Client: { select: { id: true, name: true, phone: true } },
+      Staff: { select: { id: true, name: true } },
+      AppointmentService: {
+        include: {
+          Service: { select: { id: true, name: true, durationMins: true, price: true } },
+        },
+      },
+    },
+  });
+}
+
 // ─── Start appointment (IN_PROGRESS) ──────────────────────────────────────────
 
 export async function startAppointment(
@@ -578,7 +668,7 @@ export async function startAppointment(
 
 export async function completeAppointment(
   id: string
-): Promise<{ success: true } | { success: false; error: string }> {
+): Promise<{ success: true; appointmentId?: string } | { success: false; error: string }> {
   if (!id) return { success: false, error: "Missing appointment id" };
 
   try {
@@ -598,7 +688,8 @@ export async function completeAppointment(
 
     revalidatePath("/dashboard/appointments");
     revalidatePath("/dashboard/queue");
-    return { success: true };
+    revalidatePath("/dashboard/checkin");
+    return { success: true, appointmentId: id };
   } catch (err) {
     console.error("[completeAppointment]", err);
     return { success: false, error: "Failed to complete appointment" };
@@ -870,6 +961,149 @@ export async function updateAppointmentNotes(
   }
 }
 
+// ─── Cancel appointment with policy ───────────────────────────────────────────
+
+export async function cancelAppointmentWithPolicy(
+  appointmentId: string,
+  reason?: string
+): Promise<{
+  success: boolean;
+  feeApplied: boolean;
+  feeAmount?: number;
+  warning?: string;
+  error?: string;
+}> {
+  if (!appointmentId) return { success: false, feeApplied: false, error: "Missing appointment id" };
+
+  try {
+    // 1. Load the appointment
+    const appointment = await prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      select: {
+        id: true,
+        salonId: true,
+        date: true,
+        startTime: true,
+        status: true,
+        AppointmentService: { select: { serviceId: true } },
+      },
+    });
+    if (!appointment) return { success: false, feeApplied: false, error: "Appointment not found" };
+    if (appointment.status === "CANCELLED") {
+      return { success: false, feeApplied: false, error: "Appointment is already cancelled" };
+    }
+
+    // 2. Check cancellation policy
+    let feeApplied = false;
+    let feeAmount: number | undefined;
+    let warning: string | undefined;
+
+    try {
+      const { getCancellationPolicy, applyCancellationFee } = await import("@/app/actions/policies");
+      const policy = await getCancellationPolicy();
+
+      if (policy.enabled) {
+        // Determine if cancellation is within the notice period
+        const apptDateTime = new Date(`${appointment.date}T${appointment.startTime}`);
+        const now = new Date();
+        const hoursUntil = (apptDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+        const isLateCancel = hoursUntil < policy.noticePeriodHours;
+
+        if (isLateCancel) {
+          if (policy.autoChargeFee) {
+            const feeResult = await applyCancellationFee(appointmentId, "late_cancel");
+            if (feeResult.success) {
+              feeApplied = true;
+              feeAmount = feeResult.feeAmount;
+            }
+          } else {
+            // Not auto-charging but warn the front-end
+            warning = `This cancellation is within the ${policy.noticePeriodHours}-hour notice period. A cancellation fee may apply.`;
+          }
+        }
+      }
+    } catch (policyErr) {
+      // Non-fatal: policy check failure should not block cancellation
+      console.error("[cancelAppointmentWithPolicy] policy check failed", policyErr);
+    }
+
+    // 3. Cancel the appointment and notify waitlist (reuse cancelAppointment logic)
+    const cancelResult = await cancelAppointment(appointmentId);
+    if (!cancelResult.success) {
+      return { success: false, feeApplied, error: cancelResult.error };
+    }
+
+    // 4. Persist reason in notes if provided
+    if (reason) {
+      try {
+        const existing = await prisma.appointment.findUnique({
+          where: { id: appointmentId },
+          select: { notes: true },
+        });
+        const existingNotes = existing?.notes ?? "";
+        const newNotes = existingNotes
+          ? `${existingNotes}\nCancellation reason: ${reason}`
+          : `Cancellation reason: ${reason}`;
+        await prisma.appointment.update({
+          where: { id: appointmentId },
+          data: { notes: newNotes },
+        });
+      } catch {
+        // Non-fatal
+      }
+    }
+
+    return { success: true, feeApplied, feeAmount, warning };
+  } catch (err) {
+    console.error("[cancelAppointmentWithPolicy]", err);
+    return { success: false, feeApplied: false, error: "Failed to cancel appointment" };
+  }
+}
+
+// ─── Cancel appointment by client (portal) ────────────────────────────────────
+
+/**
+ * Client-facing cancellation: verifies ownership before updating status.
+ * Only allows cancellation of SCHEDULED appointments.
+ */
+export async function cancelAppointmentByClient(
+  appointmentId: string,
+  clientId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!appointmentId) return { success: false, error: "Missing appointment id" };
+  if (!clientId) return { success: false, error: "Missing client id" };
+
+  try {
+    const appointment = await prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      select: { id: true, clientId: true, status: true, date: true, startTime: true },
+    });
+
+    if (!appointment) {
+      return { success: false, error: "Appointment not found" };
+    }
+
+    if (appointment.clientId !== clientId) {
+      return { success: false, error: "This appointment does not belong to your account" };
+    }
+
+    if (appointment.status !== "SCHEDULED") {
+      return { success: false, error: "Only scheduled appointments can be cancelled" };
+    }
+
+    await prisma.appointment.update({
+      where: { id: appointmentId },
+      data: { status: "CANCELLED" },
+    });
+
+    revalidatePath(`/portal`);
+    return { success: true };
+  } catch (err) {
+    console.error("[cancelAppointmentByClient]", err);
+    return { success: false, error: "Failed to cancel appointment" };
+  }
+}
+
 // ─── Auto-reminder generation helper ──────────────────────────────────────────
 // Non-exported: called after appointment creation to schedule reminders
 // based on the salon's ReminderSettings stored in businessHours JSON.
@@ -877,12 +1111,12 @@ export async function updateAppointmentNotes(
 async function generateRemindersForAppointment(
   appointmentId: string,
   salonId: string
-): Promise<void> {
+): Promise<number> {
   const appointment = await prisma.appointment.findUnique({
     where: { id: appointmentId },
     select: { date: true, startTime: true, clientId: true },
   });
-  if (!appointment) return;
+  if (!appointment) return 0;
 
   // Load reminder settings from businessHours JSON
   const salon = await prisma.salon.findUnique({
@@ -943,6 +1177,7 @@ async function generateRemindersForAppointment(
     }
   }
 
+  let created = 0;
   for (const { scheduledAt, type } of remindersToCreate) {
     await prisma.reminder.create({
       data: {
@@ -956,5 +1191,371 @@ async function generateRemindersForAppointment(
         status: "PENDING",
       },
     });
+    created++;
+  }
+  return created;
+}
+
+// ─── Create recurring appointments ────────────────────────────────────────────
+
+export async function createRecurringAppointments(data: {
+  salonId: string;
+  clientId?: string;
+  staffId: string;
+  serviceIds: string[];
+  startDate: string; // "YYYY-MM-DD"
+  startTime: string; // "HH:MM"
+  totalAmount: number;
+  pattern: "weekly" | "biweekly" | "monthly";
+  occurrences: number; // 2-12
+}): Promise<{ success: boolean; created: number; ids: string[] }> {
+  const {
+    salonId,
+    clientId,
+    staffId,
+    serviceIds,
+    startDate,
+    startTime,
+    totalAmount,
+    pattern,
+    occurrences,
+  } = data;
+
+  if (!salonId || !staffId || !serviceIds.length || !startDate || !startTime) {
+    return { success: false, created: 0, ids: [] };
+  }
+
+  const clampedOccurrences = Math.min(12, Math.max(2, occurrences));
+
+  try {
+    const seriesId = randomUUID();
+    const ids: string[] = [];
+
+    // Generate dates based on pattern
+    function addMonths(dateStr: string, months: number): string {
+      const [y, m, d] = dateStr.split("-").map(Number);
+      const date = new Date(y, m - 1 + months, d);
+      // Clamp to last day of month if needed
+      const actualMonth = (m - 1 + months) % 12;
+      if (date.getMonth() !== ((m - 1 + months) % 12 + 12) % 12) {
+        // Day overflowed: go to last day of intended month
+        date.setDate(0);
+      }
+      return date.toISOString().split("T")[0];
+    }
+
+    function addDays(dateStr: string, days: number): string {
+      const [y, m, d] = dateStr.split("-").map(Number);
+      const date = new Date(y, m - 1, d + days);
+      return date.toISOString().split("T")[0];
+    }
+
+    const dates: string[] = [];
+    for (let i = 0; i < clampedOccurrences; i++) {
+      if (pattern === "weekly") {
+        dates.push(addDays(startDate, i * 7));
+      } else if (pattern === "biweekly") {
+        dates.push(addDays(startDate, i * 14));
+      } else {
+        // monthly
+        dates.push(addMonths(startDate, i));
+      }
+    }
+
+    for (let i = 0; i < dates.length; i++) {
+      const apptId = randomUUID();
+      const notes = JSON.stringify({
+        __recurring: {
+          pattern,
+          seriesId,
+          occurrence: i + 1,
+          total: clampedOccurrences,
+        },
+      });
+
+      await prisma.appointment.create({
+        data: {
+          id: apptId,
+          salonId,
+          clientId: clientId ?? null,
+          staffId,
+          date: dates[i],
+          startTime,
+          totalAmount,
+          status: "SCHEDULED",
+          notes,
+          AppointmentService: {
+            create: serviceIds.map((serviceId) => ({
+              serviceId,
+              staffId: null,
+            })),
+          },
+        },
+      });
+
+      ids.push(apptId);
+    }
+
+    revalidatePath("/dashboard/appointments");
+    return { success: true, created: ids.length, ids };
+  } catch (err) {
+    console.error("[createRecurringAppointments]", err);
+    return { success: false, created: 0, ids: [] };
+  }
+}
+
+// ─── Cancel recurring series ───────────────────────────────────────────────────
+
+export async function cancelRecurringSeries(
+  seriesId: string,
+  cancelFrom: "this" | "future",
+  appointmentId: string
+): Promise<{ success: boolean; cancelled: number }> {
+  if (!seriesId || !appointmentId) return { success: false, cancelled: 0 };
+
+  try {
+    // Find the anchor appointment to get its date
+    const anchor = await prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      select: { date: true, notes: true },
+    });
+    if (!anchor) return { success: false, cancelled: 0 };
+
+    // Fetch all appointments and filter by seriesId in notes
+    const allAppts = await prisma.appointment.findMany({
+      where: { status: { not: "CANCELLED" } },
+      select: { id: true, date: true, notes: true },
+    });
+
+    const seriesAppts = allAppts.filter((a) => {
+      if (!a.notes) return false;
+      try {
+        const parsed = JSON.parse(a.notes);
+        return parsed?.__recurring?.seriesId === seriesId;
+      } catch {
+        return false;
+      }
+    });
+
+    let toCancel: string[];
+    if (cancelFrom === "this") {
+      toCancel = [appointmentId];
+    } else {
+      // Cancel this appointment and all future ones in the series
+      toCancel = seriesAppts
+        .filter((a) => a.date >= anchor.date)
+        .map((a) => a.id);
+    }
+
+    if (toCancel.length === 0) return { success: true, cancelled: 0 };
+
+    await prisma.appointment.updateMany({
+      where: { id: { in: toCancel } },
+      data: { status: "CANCELLED" },
+    });
+
+    revalidatePath("/dashboard/appointments");
+    return { success: true, cancelled: toCancel.length };
+  } catch (err) {
+    console.error("[cancelRecurringSeries]", err);
+    return { success: false, cancelled: 0 };
+  }
+}
+
+// ─── Get appointments by series ID ────────────────────────────────────────────
+
+export async function getAppointmentsBySeries(
+  seriesId: string
+): Promise<AppointmentWithRelations[]> {
+  if (!seriesId) return [];
+
+  try {
+    // SQLite doesn't support JSON operators, so load all and filter in JS
+    const all = await prisma.appointment.findMany({
+      orderBy: [{ date: "asc" }, { startTime: "asc" }],
+      include: {
+        Client: { select: { id: true, name: true, phone: true } },
+        Staff: { select: { id: true, name: true } },
+        AppointmentService: {
+          include: {
+            Service: { select: { id: true, name: true, price: true, durationMins: true } },
+            Staff: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+
+    return all.filter((a) => {
+      if (!a.notes) return false;
+      try {
+        const parsed = JSON.parse(a.notes);
+        return parsed?.__recurring?.seriesId === seriesId;
+      } catch {
+        return false;
+      }
+    });
+  } catch (err) {
+    console.error("[getAppointmentsBySeries]", err);
+    return [];
+  }
+}
+
+// ─── bookAppointmentPublic ─────────────────────────────────────────────────────
+//
+// Public-facing server action used by the online booking wizard.
+// Finds or creates the client by phone number, resolves "no preference" staff
+// to the first eligible staff member, then creates the Appointment +
+// AppointmentService records.
+
+export async function bookAppointmentPublic(data: {
+  salonId: string;
+  serviceIds: string[];
+  staffId: string | null; // null = any staff (auto-assign)
+  date: string;
+  startTime: string;
+  clientName: string;
+  clientPhone: string;
+  clientEmail?: string;
+  notes?: string;
+}): Promise<
+  | { success: true; appointmentId: string; confirmationCode: string }
+  | { success: false; error: string }
+> {
+  const {
+    salonId,
+    serviceIds,
+    staffId: requestedStaffId,
+    date,
+    startTime,
+    clientName,
+    clientPhone,
+    clientEmail,
+    notes,
+  } = data;
+
+  if (!salonId) return { success: false, error: "Missing salon" };
+  if (!serviceIds || serviceIds.length === 0)
+    return { success: false, error: "At least one service is required" };
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date))
+    return { success: false, error: "Invalid date" };
+  if (!startTime || !/^\d{2}:\d{2}$/.test(startTime))
+    return { success: false, error: "Invalid start time" };
+  if (!clientName?.trim()) return { success: false, error: "Name is required" };
+  if (!clientPhone?.trim()) return { success: false, error: "Phone is required" };
+
+  try {
+    // 1. Verify salon
+    const salon = await prisma.salon.findUnique({
+      where: { id: salonId },
+      select: { id: true, name: true },
+    });
+    if (!salon) return { success: false, error: "Salon not found" };
+
+    // 2. Verify services belong to this salon and are active + online-bookable
+    const services = await prisma.service.findMany({
+      where: { id: { in: serviceIds }, salonId, active: true, onlineBooking: true },
+      select: { id: true, price: true, durationMins: true },
+    });
+    if (services.length !== serviceIds.length) {
+      return { success: false, error: "One or more services not found or not available" };
+    }
+
+    // 3. Resolve staff
+    let resolvedStaffId: string;
+
+    if (requestedStaffId) {
+      // Verify the requested staff member belongs to this salon and offers all services
+      const staffMember = await prisma.staff.findFirst({
+        where: { id: requestedStaffId, salonId },
+        select: { id: true },
+      });
+      if (!staffMember) return { success: false, error: "Staff member not found" };
+
+      const staffServices = await prisma.staffService.findMany({
+        where: { staffId: requestedStaffId, serviceId: { in: serviceIds } },
+        select: { serviceId: true },
+      });
+      if (staffServices.length !== serviceIds.length) {
+        return {
+          success: false,
+          error: "This staff member does not offer all selected services",
+        };
+      }
+      resolvedStaffId = requestedStaffId;
+    } else {
+      // Auto-assign: find first staff who offers all selected services
+      const allStaffForSalon = await prisma.staff.findMany({
+        where: { salonId },
+        select: {
+          id: true,
+          StaffService: { where: { serviceId: { in: serviceIds } }, select: { serviceId: true } },
+        },
+      });
+      const eligible = allStaffForSalon.find(
+        (m) => m.StaffService.length === serviceIds.length
+      );
+      if (!eligible) {
+        return { success: false, error: "No staff member available for the selected services" };
+      }
+      resolvedStaffId = eligible.id;
+    }
+
+    // 4. Find or create client by phone
+    let client = await prisma.client.findFirst({
+      where: { salonId, phone: clientPhone },
+      select: { id: true },
+    });
+
+    if (!client) {
+      client = await prisma.client.create({
+        data: {
+          id: randomUUID(),
+          salonId,
+          name: clientName.trim(),
+          phone: clientPhone.trim(),
+          email: clientEmail?.trim() || null,
+        },
+        select: { id: true },
+      });
+    }
+
+    const totalAmount = services.reduce((sum, s) => sum + s.price, 0);
+
+    // 5. Create the appointment
+    const appointment = await prisma.appointment.create({
+      data: {
+        id: randomUUID(),
+        salonId,
+        clientId: client.id,
+        staffId: resolvedStaffId,
+        date,
+        startTime,
+        totalAmount,
+        status: "SCHEDULED",
+        notes: notes?.trim() || null,
+        AppointmentService: {
+          create: serviceIds.map((serviceId) => ({
+            serviceId,
+            staffId: resolvedStaffId,
+          })),
+        },
+      },
+      select: { id: true },
+    });
+
+    // 6. Auto-schedule reminders (non-fatal)
+    try {
+      await generateRemindersForAppointment(appointment.id, salonId);
+    } catch {
+      // Non-fatal
+    }
+
+    revalidatePath("/dashboard/appointments");
+
+    const confirmationCode = appointment.id.slice(0, 8).toUpperCase();
+    return { success: true, appointmentId: appointment.id, confirmationCode };
+  } catch (err) {
+    console.error("[bookAppointmentPublic]", err);
+    return { success: false, error: "Failed to create booking. Please try again." };
   }
 }

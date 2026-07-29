@@ -24,6 +24,7 @@ import { LoyaltyBadge } from "./loyalty-badge";
 import { ExportClientsButton } from "./export-clients-button";
 import { deleteClients } from "@/app/actions/clients";
 import { toast } from "@/components/ui/sonner";
+import { QuickClientCampaignDialog } from "@/components/campaigns/quick-client-campaign-dialog";
 
 interface ClientsGridProps {
   clients: ClientForSheet[];
@@ -39,6 +40,7 @@ export function ClientsGrid({ clients }: ClientsGridProps) {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [campaignDialogOpen, setCampaignDialogOpen] = useState(false);
 
   const allSelected = selected.size === clients.length && clients.length > 0;
   const someSelected = selected.size > 0 && !allSelected;
@@ -90,13 +92,29 @@ export function ClientsGrid({ clients }: ClientsGridProps) {
   }
 
   function handleCampaign() {
-    toast.info("Feature coming soon", "Campaign support will be available shortly.");
+    if (selected.size === 0) return;
+    setCampaignDialogOpen(true);
   }
 
   const selectedClients = clients.filter((c) => selected.has(c.id));
 
+  const selectedIds = Array.from(selected);
+
   return (
     <>
+      {/* Quick campaign dialog */}
+      <QuickClientCampaignDialog
+        open={campaignDialogOpen}
+        onOpenChange={(open) => {
+          setCampaignDialogOpen(open);
+          if (!open) {
+            // Keep selection so user can do other bulk actions
+          }
+        }}
+        clientIds={selectedIds}
+        clientCount={selectedIds.length}
+      />
+
       {/* Toolbar */}
       <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
         <Button

@@ -22,6 +22,7 @@ const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
   phone: z.string().optional(),
   serviceId: z.string().optional(),
+  staffId: z.string().optional(),
   preferredDate: z.string().optional(),
   preferredTime: z.enum(["morning", "afternoon", "evening"]).optional(),
   note: z.string().optional(),
@@ -34,10 +35,16 @@ interface ServiceOption {
   name: string;
 }
 
+interface StaffOption {
+  id: string;
+  name: string;
+}
+
 interface WaitlistJoinFormProps {
   salonId: string;
   salonSlug: string;
   services: ServiceOption[];
+  staff?: StaffOption[];
 }
 
 const TIME_RANGES = [
@@ -51,7 +58,7 @@ interface SuccessState {
   serviceName: string | null;
 }
 
-export function WaitlistJoinForm({ salonId, services }: WaitlistJoinFormProps) {
+export function WaitlistJoinForm({ salonId, services, staff = [] }: WaitlistJoinFormProps) {
   const [successState, setSuccessState] = React.useState<SuccessState | null>(null);
   const [serverError, setServerError] = React.useState<string | null>(null);
 
@@ -59,7 +66,6 @@ export function WaitlistJoinForm({ salonId, services }: WaitlistJoinFormProps) {
     register,
     handleSubmit,
     control,
-    watch,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -67,22 +73,23 @@ export function WaitlistJoinForm({ salonId, services }: WaitlistJoinFormProps) {
       name: "",
       phone: "",
       serviceId: undefined,
+      staffId: undefined,
       preferredDate: "",
       preferredTime: undefined,
       note: "",
     },
   });
 
-  const selectedServiceId = watch("serviceId");
-
   async function onSubmit(values: FormValues) {
     setServerError(null);
     const resolvedServiceId = values.serviceId === "none" ? undefined : values.serviceId;
+    const resolvedStaffId = values.staffId === "none" ? undefined : values.staffId;
 
     const result = await addToWaitlist({
       name: values.name,
       phone: values.phone,
       serviceId: resolvedServiceId,
+      staffId: resolvedStaffId,
       preferredDate: values.preferredDate || undefined,
       preferredTime: values.preferredTime,
       note: values.note,
@@ -111,9 +118,9 @@ export function WaitlistJoinForm({ salonId, services }: WaitlistJoinFormProps) {
           <CheckCircle2 className="w-8 h-8 text-green-600" />
         </div>
         <div>
-          <h2 className="text-xl font-bold text-stone-900">You are on the list!</h2>
+          <h2 className="text-xl font-bold text-stone-900">You&apos;re on the waitlist!</h2>
           <p className="text-sm text-stone-500 mt-2">
-            We will reach out as soon as a slot becomes available. Thank you for your patience.
+            We&apos;ll text you when a slot opens. Thank you for your patience.
           </p>
         </div>
 
@@ -198,6 +205,35 @@ export function WaitlistJoinForm({ salonId, services }: WaitlistJoinFormProps) {
         </div>
       )}
 
+      {/* Staff preference */}
+      {staff.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-stone-700">Staff preference</Label>
+          <Controller
+            name="staffId"
+            control={control}
+            render={({ field }) => (
+              <Select
+                value={field.value ?? "none"}
+                onValueChange={(val) => field.onChange(val === "none" ? undefined : val)}
+              >
+                <SelectTrigger className="w-full border-stone-200">
+                  <SelectValue placeholder="No preference" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No preference (any staff)</SelectItem>
+                  {staff.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+        </div>
+      )}
+
       {/* Preferred date picker */}
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="jw-date" className="text-stone-700">Preferred date</Label>
@@ -208,6 +244,7 @@ export function WaitlistJoinForm({ salonId, services }: WaitlistJoinFormProps) {
           className="border-stone-200 focus-visible:ring-rose-400"
           {...register("preferredDate")}
         />
+        <p className="text-xs text-stone-400">Leave blank if flexible</p>
       </div>
 
       {/* Preferred time of day */}

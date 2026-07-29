@@ -56,6 +56,13 @@ export type SearchGiftCard = {
   purchasedBy: string | null;
 };
 
+export type SearchInventory = {
+  id: string;
+  name: string;
+  quantity: number;
+  category: string;
+};
+
 export type GlobalSearchResult = {
   clients: SearchClient[];
   staff: SearchStaff[];
@@ -64,6 +71,7 @@ export type GlobalSearchResult = {
   invoices: SearchInvoice[];
   coupons: SearchCoupon[];
   giftCards: SearchGiftCard[];
+  inventory: SearchInventory[];
 };
 
 // Unified flat result shape used by the command palette
@@ -74,7 +82,19 @@ export type ResultType =
   | "appointment"
   | "invoice"
   | "coupon"
-  | "giftCard";
+  | "giftCard"
+  | "inventory";
+
+// Task-spec SearchResult shape (richer, used by GlobalSearch modal)
+export interface SearchResult {
+  type: ResultType;
+  id: string;
+  title: string;
+  subtitle?: string;
+  meta?: string;
+  href: string;
+  icon: string;
+}
 
 export type SearchResultItem = {
   id: string;
@@ -120,6 +140,7 @@ export async function globalSearch(
     invoices: [],
     coupons: [],
     giftCards: [],
+    inventory: [],
   };
 
   if (!query || query.trim().length < 1) return empty;
@@ -129,7 +150,7 @@ export async function globalSearch(
   const salon = await prisma.salon.findFirst();
   if (!salon) return empty;
 
-  const [clients, staff, services, appointments, invoices, coupons, giftCards] =
+  const [clients, staff, services, appointments, invoices, coupons, giftCards, inventory] =
     await Promise.all([
       prisma.client.findMany({
         where: {
@@ -241,6 +262,17 @@ export async function globalSearch(
         take: limit,
         orderBy: { createdAt: "desc" },
       }),
+
+      // Inventory: match by name
+      prisma.inventoryItem.findMany({
+        where: {
+          salonId: salon.id,
+          name: { contains: q },
+        },
+        select: { id: true, name: true, quantity: true, category: true },
+        take: limit,
+        orderBy: { name: "asc" },
+      }),
     ]);
 
   return {
@@ -270,6 +302,7 @@ export async function globalSearch(
     })),
     coupons,
     giftCards,
+    inventory,
   };
 }
 
@@ -282,6 +315,7 @@ const RESULT_TYPE_ICON: Record<ResultType, string> = {
   invoice: "Receipt",
   coupon: "Tag",
   giftCard: "Gift",
+  inventory: "Package",
 };
 
 /**
@@ -408,5 +442,82 @@ export async function globalSearchItems(
     });
   }
 
+  for (const item of raw.inventory) {
+    const title = item.name;
+    const subtitle = `${item.category} · ${item.quantity} in stock`;
+    items.push({
+      id: item.id,
+      type: "inventory",
+      title,
+      subtitle,
+      href: `/dashboard/inventory`,
+      icon: RESULT_TYPE_ICON.inventory,
+      label: title,
+      sublabel: subtitle,
+    });
+  }
+
   return items;
+}
+
+// ---------------------------------------------------------------------------
+// Search suggestions (shown in the modal before any query is typed)
+// ---------------------------------------------------------------------------
+export async function getSearchSuggestions(): Promise<{
+  recentClients: { id: string; name: string }[];
+  todayAppointments: { id: string; clientName: string; time: string }[];
+  lowStockItems: { id: string; name: string; quantity: number }[];
+}> {
+  const salon = await prisma.salon.findFirst();
+  if (!salon) {
+    return { recentClients: [], todayAppointments: [], lowStockItems: [] };
+  }
+
+  const today = new Date().toISOString().split("T")[0];
+
+  const [recentClients, todayAppts, lowStockItems] = await Promise.all([
+    prisma.client.findMany({
+      where: { salonId: salon.id },
+      select: { id: true, name: true },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
+
+    prisma.appointment.findMany({
+      where: { salonId: salon.id, date: today },
+      select: {
+        id: true,
+        startTime: true,
+        Client: { select: { name: true } },
+      },
+      orderBy: { startTime: "asc" },
+      take: 5,
+    }),
+
+    // Low stock: items where current quantity <= minQuantity threshold
+    // We fetch all items and filter in JS to avoid cross-column comparisons
+    prisma.inventoryItem
+      .findMany({
+        where: { salonId: salon.id },
+        select: { id: true, name: true, quantity: true, minQuantity: true },
+        orderBy: { quantity: "asc" },
+        take: 50,
+      })
+      .then((items) =>
+        items
+          .filter((i) => i.quantity <= i.minQuantity)
+          .slice(0, 5)
+          .map(({ id, name, quantity }) => ({ id, name, quantity }))
+      ),
+  ]);
+
+  return {
+    recentClients,
+    todayAppointments: todayAppts.map((a) => ({
+      id: a.id,
+      clientName: a.Client?.name ?? "Walk-in",
+      time: a.startTime,
+    })),
+    lowStockItems,
+  };
 }

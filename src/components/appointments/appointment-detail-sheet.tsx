@@ -23,6 +23,7 @@ import {
   Receipt,
   Loader2,
   Phone,
+  Banknote,
 } from "lucide-react";
 
 import {
@@ -497,13 +498,44 @@ export function AppointmentDetailSheet({
                       </span>
                     }
                   />
-                  {appointment.notes && (
-                    <DetailRow
-                      icon={<StickyNote className="w-4 h-4" />}
-                      label="Notes"
-                      value={<span className="whitespace-pre-wrap">{appointment.notes}</span>}
-                    />
-                  )}
+                  {appointment.notes && (() => {
+                    // Filter out the __deposit marker from displayed notes
+                    const displayNotes = appointment.notes
+                      .replace(/__deposit:\d+(?:\.\d+)?\n?/, "")
+                      .trim();
+                    // Parse deposit amount
+                    const depositMatch = appointment.notes.match(/__deposit:(\d+(?:\.\d+)?)/);
+                    const depositAmount = depositMatch ? parseFloat(depositMatch[1]) : null;
+                    return (
+                      <>
+                        {depositAmount !== null && (
+                          <DetailRow
+                            icon={<Banknote className="w-4 h-4" />}
+                            label="Deposit"
+                            value={
+                              <span className="inline-flex items-center gap-1.5">
+                                <span className="font-semibold text-blue-500">
+                                  {depositAmount.toLocaleString("en", {
+                                    style: "currency",
+                                    currency: "USD",
+                                    minimumFractionDigits: 0,
+                                  })} collected
+                                </span>
+                              </span>
+                            }
+                          />
+                        )}
+                        {displayNotes && (
+                          <DetailRow
+                            icon={<StickyNote className="w-4 h-4" />}
+                            label="Notes"
+                            value={<span className="whitespace-pre-wrap">{displayNotes}</span>}
+                          />
+                        )}
+                      </>
+                    );
+                  })()}
+                  {!appointment.notes && null}
                 </div>
 
                 <Separator />
@@ -765,7 +797,11 @@ export function AppointmentDetailSheet({
                         onValueChange={(val) => field.onChange(val)}
                       >
                         <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Walk-in / select client" />
+                          <SelectValue placeholder="Walk-in / select client">
+                            {field.value && field.value !== "walk-in"
+                              ? (clients.find((c) => c.id === field.value)?.name ?? field.value)
+                              : "Walk-in"}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="walk-in">Walk-in</SelectItem>
@@ -797,7 +833,11 @@ export function AppointmentDetailSheet({
                           className="w-full"
                           aria-invalid={!!errors.staffId}
                         >
-                          <SelectValue placeholder="Select staff member" />
+                          <SelectValue placeholder="Select staff member">
+                            {field.value
+                              ? (staff.find((s) => s.id === field.value)?.name ?? field.value)
+                              : "Select staff member"}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {staff.map((s) => (

@@ -37,7 +37,11 @@ export default async function PublicWaitlistPage({ params }: PageProps) {
       city: true,
       country: true,
       Service: {
-        where: { active: true },
+        where: { active: true, onlineBooking: true },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      },
+      Staff: {
         select: { id: true, name: true },
         orderBy: { name: "asc" },
       },
@@ -100,7 +104,7 @@ export default async function PublicWaitlistPage({ params }: PageProps) {
             No appointments available right now? Leave your details and we will reach out as soon as a slot opens up.
           </p>
 
-          <WaitlistJoinForm salonId={salon.id} salonSlug={salon.slug} services={salon.Service} />
+          <WaitlistJoinForm salonId={salon.id} salonSlug={salon.slug} services={salon.Service} staff={salon.Staff} />
         </div>
 
         <p className="text-center text-xs text-stone-300 mt-6">

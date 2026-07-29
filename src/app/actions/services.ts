@@ -285,6 +285,38 @@ export async function deleteCategory(
   }
 }
 
+// ── reorderCategories ──────────────────────────────────────────────────────
+
+export async function reorderCategories(
+  orderedIds: string[]
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const salon = await prisma.salon.findFirst();
+    if (!salon) return { success: false, error: "No salon found" };
+
+    // Persist the order in Salon.businessHours as __categoryOrder
+    let hours: Record<string, unknown> = {};
+    if (salon.businessHours) {
+      try {
+        hours = JSON.parse(salon.businessHours);
+      } catch {
+        hours = {};
+      }
+    }
+    hours.__categoryOrder = orderedIds;
+
+    await prisma.salon.update({
+      where: { id: salon.id },
+      data: { businessHours: JSON.stringify(hours) },
+    });
+
+    return { success: true };
+  } catch (err) {
+    console.error("[reorderCategories]", err);
+    return { success: false, error: "Failed to save category order" };
+  }
+}
+
 // ── importServices ─────────────────────────────────────────────────────────
 
 export type ImportServiceInput = {

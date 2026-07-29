@@ -47,6 +47,14 @@ export async function getBudgets(): Promise<Record<ExpenseCategory, number>> {
   return result;
 }
 
+// ── updateBudgets (alias for components) ──────────────────────────────────────
+
+export async function updateBudgets(
+  budgets: Record<string, number>
+): Promise<{ success: boolean; error?: string }> {
+  return saveBudgets(budgets);
+}
+
 // ── saveBudgets ────────────────────────────────────────────────────────────────
 
 export async function saveBudgets(

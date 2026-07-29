@@ -1,50 +1,58 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useTransition, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { requestBooking, getAvailableSlots } from "@/app/actions/booking";
+import { getAvailableSlots } from "@/app/actions/booking";
+import { bookAppointmentPublic } from "@/app/actions/appointments";
+import { calculateDynamicPrice } from "@/app/actions/pricing-rules";
+import type { BlackoutDate } from "@/app/actions/settings";
 
-// ─── Types ──────────────────────────────────────────────────────────────────────
-
-interface StaffMember {
-  id: string;
-  name: string;
-  avatar: string | null;
-}
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface ServiceItem {
   id: string;
   name: string;
   price: number;
   durationMins: number;
-  staff: StaffMember[];
+  categoryId: string;
+  isAddon: boolean;
+  onlineBooking: boolean;
 }
 
-interface Category {
+interface CategoryItem {
   id: string;
   name: string;
-  icon: string | null;
-  services: ServiceItem[];
+}
+
+interface StaffMember {
+  id: string;
+  name: string;
+  avatar?: string | null;
+  /** serviceIds this staff member can perform */
+  serviceIds: string[];
 }
 
 interface SalonInfo {
   id: string;
   name: string;
-  logo: string | null;
+  logo?: string | null;
   slug: string;
-  city: string | null;
+  city?: string | null;
   currency: string | null;
 }
 
-interface BookingWizardProps {
+export interface BookingWizardProps {
   salon: SalonInfo;
-  categories: Category[];
+  services: ServiceItem[];
+  categories: CategoryItem[];
+  staff: StaffMember[];
+  blackoutDates?: BlackoutDate[];
 }
 
-// ─── Contact form schema ─────────────────────────────────────────────────────────
+// ─── Contact form schema ──────────────────────────────────────────────────────
 
 const contactSchema = z.object({
   clientName: z.string().min(1, "Name is required"),
@@ -55,7 +63,7 @@ const contactSchema = z.object({
 
 type ContactValues = z.infer<typeof contactSchema>;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatPrice(price: number, currency: string | null): string {
   const c = currency ?? "USD";
@@ -71,10 +79,6 @@ function formatDuration(mins: number): string {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return m ? `${h}h ${m}m` : `${h}h`;
-}
-
-function todayString(): string {
-  return new Date().toISOString().split("T")[0];
 }
 
 function formatDateDisplay(dateStr: string): string {
@@ -94,30 +98,9 @@ function formatTimeDisplay(time: string): string {
   return `${displayH}:${String(m).padStart(2, "0")} ${period}`;
 }
 
-// Get the set of staff IDs that can perform ALL selected services
-function getCommonStaff(services: ServiceItem[]): StaffMember[] {
-  if (services.length === 0) return [];
-  const staffSets = services.map(
-    (svc) => new Set(svc.staff.map((s) => s.id))
-  );
-  const commonIds = [...staffSets[0]].filter((id) =>
-    staffSets.every((set) => set.has(id))
-  );
-  // De-duplicate staff objects
-  const allStaff = services.flatMap((svc) => svc.staff);
-  const seen = new Set<string>();
-  return allStaff.filter((s) => {
-    if (commonIds.includes(s.id) && !seen.has(s.id)) {
-      seen.add(s.id);
-      return true;
-    }
-    return false;
-  });
-}
+// ─── Step indicator ───────────────────────────────────────────────────────────
 
-// ─── Step indicator ──────────────────────────────────────────────────────────────
-
-const STEPS = ["Services", "Staff & Time", "Your Info", "Confirm"] as const;
+const STEPS = ["Services", "Staff", "Date & Time", "Your Info", "Confirm"] as const;
 
 function StepIndicator({ current }: { current: number }) {
   return (
@@ -165,7 +148,7 @@ function StepIndicator({ current }: { current: number }) {
           {i < STEPS.length - 1 && (
             <div
               className={[
-                "w-6 sm:w-10 h-0.5 mx-1 mt-[-14px] sm:mt-[-22px] transition-colors duration-300",
+                "w-4 sm:w-8 h-0.5 mx-1 mt-[-14px] sm:mt-[-22px] transition-colors duration-300",
                 i < current ? "bg-emerald-400" : "bg-stone-200",
               ].join(" ")}
             />
@@ -176,18 +159,66 @@ function StepIndicator({ current }: { current: number }) {
   );
 }
 
-// ─── Cart badge ──────────────────────────────────────────────────────────────────
+// ─── Summary bar (sticky bottom) ─────────────────────────────────────────────
 
-function CartBadge({ count }: { count: number }) {
-  if (count === 0) return null;
+function SummaryBar({
+  services,
+  currency,
+}: {
+  services: ServiceItem[];
+  currency: string | null;
+}) {
+  if (services.length === 0) return null;
+  const totalDuration = services.reduce((sum, s) => sum + s.durationMins, 0);
+  const totalPrice = services.reduce((sum, s) => sum + s.price, 0);
   return (
-    <span className="ml-2 inline-flex items-center justify-center w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] font-bold">
-      {count}
-    </span>
+    <div className="sticky bottom-0 left-0 right-0 bg-white border-t border-stone-200 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] px-4 py-3 flex items-center justify-between z-10 rounded-b-xl">
+      <div>
+        <p className="text-xs font-semibold text-stone-700">
+          {services.length} service{services.length > 1 ? "s" : ""} selected
+        </p>
+        <p className="text-xs text-stone-400">{formatDuration(totalDuration)} total</p>
+      </div>
+      <p className="text-base font-bold text-rose-600">{formatPrice(totalPrice, currency)}</p>
+    </div>
   );
 }
 
-// ─── Slot time button ────────────────────────────────────────────────────────────
+// ─── Staff avatar ─────────────────────────────────────────────────────────────
+
+function StaffAvatar({
+  member,
+  size = "md",
+}: {
+  member: { name: string; avatar?: string | null };
+  size?: "sm" | "md" | "lg";
+}) {
+  const sizeClass =
+    size === "sm"
+      ? "w-8 h-8 text-xs"
+      : size === "lg"
+      ? "w-14 h-14 text-xl"
+      : "w-10 h-10 text-sm";
+  if (member.avatar) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={member.avatar}
+        alt={member.name}
+        className={`${sizeClass} rounded-full object-cover`}
+      />
+    );
+  }
+  return (
+    <div
+      className={`${sizeClass} rounded-full bg-rose-100 text-rose-600 flex items-center justify-center font-semibold uppercase`}
+    >
+      {member.name.charAt(0)}
+    </div>
+  );
+}
+
+// ─── Time slot button ─────────────────────────────────────────────────────────
 
 function TimeSlot({
   time,
@@ -205,8 +236,8 @@ function TimeSlot({
       className={[
         "h-10 px-3 rounded-lg text-sm font-medium transition-all duration-150 border",
         selected
-          ? "bg-rose-500 border-rose-500 text-white shadow-sm"
-          : "bg-white border-stone-200 text-stone-700 hover:border-rose-300 hover:bg-rose-50",
+          ? "bg-amber-500 border-amber-500 text-white shadow-sm"
+          : "bg-white border-stone-200 text-stone-700 hover:border-amber-300 hover:bg-amber-50",
       ].join(" ")}
     >
       {formatTimeDisplay(time)}
@@ -214,14 +245,35 @@ function TimeSlot({
   );
 }
 
-// ─── Simple inline calendar (month grid) ─────────────────────────────────────────
+// ─── Mini calendar ────────────────────────────────────────────────────────────
+
+function isBlackedOut(dateStr: string, blackouts: BlackoutDate[]): boolean {
+  for (const b of blackouts) {
+    if (b.recurring) {
+      const startMD = b.startDate.slice(5);
+      const endMD = b.endDate.slice(5);
+      const checkMD = dateStr.slice(5);
+      // Handle year-spanning recurring ranges (e.g. Dec-Jan)
+      if (startMD <= endMD) {
+        if (checkMD >= startMD && checkMD <= endMD) return true;
+      } else {
+        if (checkMD >= startMD || checkMD <= endMD) return true;
+      }
+    } else {
+      if (dateStr >= b.startDate && dateStr <= b.endDate) return true;
+    }
+  }
+  return false;
+}
 
 function MiniCalendar({
   selected,
   onSelect,
+  blackoutDates = [],
 }: {
   selected: string;
   onSelect: (date: string) => void;
+  blackoutDates?: BlackoutDate[];
 }) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -230,7 +282,7 @@ function MiniCalendar({
   const [viewMonth, setViewMonth] = useState(today.getMonth());
 
   const firstOfMonth = new Date(viewYear, viewMonth, 1);
-  const startDow = firstOfMonth.getDay(); // 0=Sun
+  const startDow = firstOfMonth.getDay();
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
 
   const prevMonth = () => {
@@ -263,7 +315,6 @@ function MiniCalendar({
 
   return (
     <div className="select-none">
-      {/* Month navigation */}
       <div className="flex items-center justify-between mb-3">
         <button
           type="button"
@@ -288,7 +339,6 @@ function MiniCalendar({
         </button>
       </div>
 
-      {/* Day-of-week headers */}
       <div className="grid grid-cols-7 mb-1">
         {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
           <div key={d} className="text-center text-[11px] font-semibold text-stone-400 py-1">
@@ -297,7 +347,6 @@ function MiniCalendar({
         ))}
       </div>
 
-      {/* Day cells */}
       <div className="grid grid-cols-7 gap-y-0.5">
         {cells.map((day, idx) => {
           if (day === null) {
@@ -309,17 +358,22 @@ function MiniCalendar({
           const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
           const isSelected = selected === dateStr;
           const isToday = cellDate.getTime() === today.getTime();
+          const isBlocked = isBlackedOut(dateStr, blackoutDates);
+          const isDisabled = isPast || isBlocked;
 
           return (
             <button
               type="button"
               key={dateStr}
-              disabled={isPast}
+              disabled={isDisabled}
               onClick={() => onSelect(dateStr)}
+              title={isBlocked ? "This date is unavailable for booking" : undefined}
               className={[
                 "mx-auto w-8 h-8 rounded-full text-sm flex items-center justify-center transition-all duration-150",
                 isPast
                   ? "text-stone-300 cursor-not-allowed"
+                  : isBlocked
+                  ? "bg-red-100 text-red-300 cursor-not-allowed line-through"
                   : isSelected
                   ? "bg-rose-500 text-white font-semibold shadow-sm"
                   : isToday
@@ -336,208 +390,289 @@ function MiniCalendar({
   );
 }
 
-// ─── Staff avatar ─────────────────────────────────────────────────────────────────
+// ─── Main wizard ──────────────────────────────────────────────────────────────
 
-function StaffAvatar({ member, size = "md" }: { member: StaffMember; size?: "sm" | "md" | "lg" }) {
-  const sizeClass = size === "sm" ? "w-8 h-8 text-xs" : size === "lg" ? "w-14 h-14 text-xl" : "w-10 h-10 text-sm";
-  if (member.avatar) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={member.avatar}
-        alt={member.name}
-        className={`${sizeClass} rounded-full object-cover`}
-      />
-    );
-  }
-  return (
-    <div
-      className={`${sizeClass} rounded-full bg-rose-100 text-rose-600 flex items-center justify-center font-semibold uppercase`}
-    >
-      {member.name.charAt(0)}
-    </div>
-  );
-}
+const NO_PREFERENCE_ID = "__no_preference__";
 
-// ─── Main wizard ──────────────────────────────────────────────────────────────────
-
-export function BookingWizard({ salon, categories }: BookingWizardProps) {
+export function BookingWizard({ salon, services, categories, staff, blackoutDates = [] }: BookingWizardProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  // Step: 0=Services, 1=Staff+Time, 2=Info, 3=Confirm
+  // ── Pre-selection from URL params (?services=id1,id2&staff=staffId) ──────────
+  const didPreselect = useRef(false);
+
+  // 0=Services, 1=Staff, 2=Date+Time, 3=Info, 4=Confirm
   const [step, setStep] = useState(0);
 
-  // Multi-select service cart
+  // Step 1: selected services
   const [selectedServices, setSelectedServices] = useState<ServiceItem[]>([]);
-  const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
+  const [activeCategoryId, setActiveCategoryId] = useState<string>("all");
+
+  // Step 2: staff
+  // null = not chosen yet; NO_PREFERENCE_ID string = no preference selected
+  const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
+
+  // ── Apply URL pre-selection once on mount ────────────────────────────────────
+  useEffect(() => {
+    if (didPreselect.current) return;
+    didPreselect.current = true;
+
+    const serviceParam = searchParams.get("services");
+    const staffParam = searchParams.get("staff");
+
+    if (serviceParam) {
+      const ids = serviceParam.split(",").map((s) => s.trim()).filter(Boolean);
+      const preselected = ids
+        .map((id) => services.find((s) => s.id === id))
+        .filter((s): s is ServiceItem => s !== undefined);
+      if (preselected.length > 0) {
+        setSelectedServices(preselected);
+        // Jump to step 1 (staff selection) since services are pre-filled
+        setStep(1);
+      }
+    }
+
+    if (staffParam) {
+      const found = staff.find((m) => m.id === staffParam);
+      if (found) {
+        setSelectedStaffId(found.id);
+        // If services were also pre-filled, jump to step 2 (date/time)
+        if (serviceParam) {
+          setStep(2);
+        }
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Step 3: date + time
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedTime, setSelectedTime] = useState("");
-
-  // Slot loading state
   const [slots, setSlots] = useState<string[]>([]);
   const [slotsLoading, startSlotsTransition] = useTransition();
-  const [slotsDate, setSlotsDate] = useState(""); // the date we loaded slots for
+  const [slotsDateLoaded, setSlotsDateLoaded] = useState("");
 
-  // Contact form
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Dynamic pricing state
+  const [pricingInfo, setPricingInfo] = useState<{
+    serviceId: string;
+    serviceName: string;
+    basePrice: number;
+    finalPrice: number;
+    appliedRules: { name: string; adjustment: number }[];
+  } | null>(null);
+  const [, startPricingTransition] = useTransition();
 
+  // Step 4: contact form
   const {
     register,
     handleSubmit,
     getValues,
     formState: { errors },
-  } = useForm<ContactValues>({
-    resolver: zodResolver(contactSchema),
-  });
+  } = useForm<ContactValues>({ resolver: zodResolver(contactSchema) });
 
-  // Total duration for slot loading
+  // Step 5: submit
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // ── Derived ─────────────────────────────────────────────────────────────────
+
   const totalDuration = selectedServices.reduce((sum, s) => sum + s.durationMins, 0);
   const totalPrice = selectedServices.reduce((sum, s) => sum + s.price, 0);
 
-  // Load slots whenever staff + date change
+  // Staff who can perform ALL selected services
+  const selectedServiceIds = selectedServices.map((s) => s.id);
+  const eligibleStaff =
+    selectedServiceIds.length === 0
+      ? staff
+      : staff.filter((m) => selectedServiceIds.every((sid) => m.serviceIds.includes(sid)));
+
+  // The resolved staff id to use for slot loading (first eligible if no preference)
+  const resolvedStaffIdForSlots =
+    selectedStaffId === NO_PREFERENCE_ID
+      ? (eligibleStaff[0]?.id ?? null)
+      : selectedStaffId;
+
+  // Filtered services for the current category tab
+  const filteredServices =
+    activeCategoryId === "all"
+      ? services
+      : services.filter((s) => s.categoryId === activeCategoryId);
+
+  // ── Load slots when staff + date change ─────────────────────────────────────
+
   useEffect(() => {
-    if (!selectedStaff || !selectedDate || totalDuration === 0) {
+    if (!resolvedStaffIdForSlots || !selectedDate || totalDuration === 0) {
       setSlots([]);
-      setSlotsDate("");
+      setSlotsDateLoaded("");
       return;
     }
-    if (slotsDate === selectedDate) return; // already loaded for this date
+    if (slotsDateLoaded === `${resolvedStaffIdForSlots}:${selectedDate}`) return;
     setSelectedTime("");
+    const key = `${resolvedStaffIdForSlots}:${selectedDate}`;
     startSlotsTransition(async () => {
-      const result = await getAvailableSlots(selectedStaff.id, selectedDate, totalDuration);
+      const result = await getAvailableSlots(resolvedStaffIdForSlots, selectedDate, totalDuration);
       setSlots(result);
-      setSlotsDate(selectedDate);
+      setSlotsDateLoaded(key);
     });
-  }, [selectedStaff, selectedDate, totalDuration, slotsDate]);
+  }, [resolvedStaffIdForSlots, selectedDate, totalDuration, slotsDateLoaded]);
 
-  // Reset slots when staff changes
+  // Reset slots when staff selection changes
   useEffect(() => {
     setSlots([]);
-    setSlotsDate("");
+    setSlotsDateLoaded("");
     setSelectedTime("");
     setSelectedDate("");
-  }, [selectedStaff]);
+  }, [selectedStaffId]);
 
-  // ── Service toggle ────────────────────────────────────────────────────────────
+  // ── Dynamic pricing: fetch when date + time + service are known ──────────────
+  useEffect(() => {
+    const firstService = selectedServices[0];
+    if (!firstService || !selectedDate || !selectedTime) {
+      setPricingInfo(null);
+      return;
+    }
+    startPricingTransition(async () => {
+      const result = await calculateDynamicPrice(firstService.id, selectedDate, selectedTime);
+      setPricingInfo({
+        serviceId: firstService.id,
+        serviceName: firstService.name,
+        basePrice: result.basePrice,
+        finalPrice: result.finalPrice,
+        appliedRules: result.appliedRules,
+      });
+    });
+  }, [selectedServices, selectedDate, selectedTime]);
+
+  // ── Service toggle ───────────────────────────────────────────────────────────
 
   function toggleService(svc: ServiceItem) {
     setSelectedServices((prev) => {
       const exists = prev.find((s) => s.id === svc.id);
-      const next = exists ? prev.filter((s) => s.id !== svc.id) : [...prev, svc];
-      return next;
+      return exists ? prev.filter((s) => s.id !== svc.id) : [...prev, svc];
     });
-    // Reset downstream selections when cart changes
-    setSelectedStaff(null);
+    // Reset downstream when cart changes
+    setSelectedStaffId(null);
   }
 
-  const availableStaff = getCommonStaff(selectedServices);
-
-  // ── Step 0: Services ──────────────────────────────────────────────────────────
+  // ── Step 0: Services ─────────────────────────────────────────────────────────
 
   function renderServiceStep() {
     return (
       <div>
-        <div className="mb-6">
+        <div className="mb-5">
           <h2 className="text-xl font-bold text-stone-800 mb-1">Choose your services</h2>
           <p className="text-stone-500 text-sm">
-            Select one or more services — then we&apos;ll find you the right staff.
+            Select one or more services. Add-ons can be combined.
           </p>
         </div>
 
-        {categories.length === 0 ? (
-          <div className="text-center py-10 text-stone-400 text-sm">
-            No services available at this time.
-          </div>
-        ) : (
-          <div className="space-y-6">
+        {/* Category filter tabs */}
+        {categories.length > 1 && (
+          <div className="flex gap-2 flex-wrap mb-5">
+            <button
+              type="button"
+              onClick={() => setActiveCategoryId("all")}
+              className={[
+                "px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors",
+                activeCategoryId === "all"
+                  ? "bg-rose-500 border-rose-500 text-white"
+                  : "bg-white border-stone-200 text-stone-600 hover:border-rose-300 hover:bg-rose-50",
+              ].join(" ")}
+            >
+              All
+            </button>
             {categories.map((cat) => (
-              <div key={cat.id}>
-                <div className="flex items-center gap-2 mb-3">
-                  {cat.icon && <span className="text-base leading-none">{cat.icon}</span>}
-                  <h3 className="text-[11px] font-bold uppercase tracking-widest text-stone-400">
-                    {cat.name}
-                  </h3>
-                </div>
-                <div className="space-y-2">
-                  {cat.services.map((svc) => {
-                    const isSelected = !!selectedServices.find((s) => s.id === svc.id);
-                    return (
-                      <button
-                        key={svc.id}
-                        type="button"
-                        onClick={() => toggleService(svc)}
-                        className={[
-                          "w-full flex items-center justify-between p-4 rounded-xl border-2 transition-all duration-150 text-left group",
-                          isSelected
-                            ? "border-rose-400 bg-rose-50"
-                            : "border-stone-100 bg-white hover:border-rose-200 hover:bg-rose-50/40",
-                        ].join(" ")}
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div
-                            className={[
-                              "w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors",
-                              isSelected
-                                ? "border-rose-500 bg-rose-500"
-                                : "border-stone-300 group-hover:border-rose-300",
-                            ].join(" ")}
-                          >
-                            {isSelected && (
-                              <svg
-                                className="w-3 h-3 text-white"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={3}
-                              >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                              </svg>
-                            )}
-                          </div>
-                          <div className="min-w-0">
-                            <p
-                              className={[
-                                "font-medium text-sm truncate",
-                                isSelected ? "text-rose-700" : "text-stone-800",
-                              ].join(" ")}
-                            >
-                              {svc.name}
-                            </p>
-                            <p className="text-xs text-stone-400 mt-0.5">
-                              {formatDuration(svc.durationMins)}
-                            </p>
-                          </div>
-                        </div>
-                        <span
-                          className={[
-                            "font-semibold text-sm ml-4 shrink-0",
-                            isSelected ? "text-rose-600" : "text-stone-600",
-                          ].join(" ")}
-                        >
-                          {formatPrice(svc.price, salon.currency)}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setActiveCategoryId(cat.id)}
+                className={[
+                  "px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors",
+                  activeCategoryId === cat.id
+                    ? "bg-rose-500 border-rose-500 text-white"
+                    : "bg-white border-stone-200 text-stone-600 hover:border-rose-300 hover:bg-rose-50",
+                ].join(" ")}
+              >
+                {cat.name}
+              </button>
             ))}
           </div>
         )}
 
-        {/* Cart summary */}
-        {selectedServices.length > 0 && (
-          <div className="mt-6 p-4 rounded-xl bg-stone-50 border border-stone-200">
-            <div className="flex justify-between items-center text-sm mb-1">
-              <span className="text-stone-500">
-                {selectedServices.length} service{selectedServices.length > 1 ? "s" : ""} selected
-              </span>
-              <span className="font-semibold text-stone-800">{formatPrice(totalPrice, salon.currency)}</span>
-            </div>
-            <p className="text-xs text-stone-400">{formatDuration(totalDuration)} total</p>
+        {filteredServices.length === 0 ? (
+          <div className="text-center py-10 text-stone-400 text-sm">
+            No services available at this time.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {filteredServices.map((svc) => {
+              const isSelected = !!selectedServices.find((s) => s.id === svc.id);
+              return (
+                <button
+                  key={svc.id}
+                  type="button"
+                  onClick={() => toggleService(svc)}
+                  className={[
+                    "w-full flex items-center justify-between p-4 rounded-xl border-2 transition-all duration-150 text-left group",
+                    isSelected
+                      ? "border-rose-400 bg-rose-50"
+                      : "border-stone-100 bg-white hover:border-rose-200 hover:bg-rose-50/40",
+                  ].join(" ")}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className={[
+                        "w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors",
+                        isSelected
+                          ? "border-rose-500 bg-rose-500"
+                          : "border-stone-300 group-hover:border-rose-300",
+                      ].join(" ")}
+                    >
+                      {isSelected && (
+                        <svg
+                          className="w-3 h-3 text-white"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={3}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p
+                        className={[
+                          "font-medium text-sm truncate",
+                          isSelected ? "text-rose-700" : "text-stone-800",
+                        ].join(" ")}
+                      >
+                        {svc.name}
+                        {svc.isAddon && (
+                          <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">
+                            Add-on
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-xs text-stone-400 mt-0.5">{formatDuration(svc.durationMins)}</p>
+                    </div>
+                  </div>
+                  <span
+                    className={[
+                      "font-semibold text-sm ml-4 shrink-0",
+                      isSelected ? "text-rose-600" : "text-stone-600",
+                    ].join(" ")}
+                  >
+                    {formatPrice(svc.price, salon.currency)}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
+
+        {/* Sticky summary bar */}
+        <SummaryBar services={selectedServices} currency={salon.currency} />
 
         <button
           type="button"
@@ -545,90 +680,144 @@ export function BookingWizard({ salon, categories }: BookingWizardProps) {
           onClick={() => setStep(1)}
           className="w-full mt-5 h-12 rounded-xl bg-rose-500 text-white text-sm font-semibold hover:bg-rose-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm shadow-rose-200"
         >
-          Continue
-          <CartBadge count={selectedServices.length} />
+          Continue to Staff
         </button>
       </div>
     );
   }
 
-  // ── Step 1: Staff & Time ──────────────────────────────────────────────────────
+  // ── Step 1: Staff ────────────────────────────────────────────────────────────
 
-  function renderStaffTimeStep() {
-    const noStaff = availableStaff.length === 0;
+  function renderStaffStep() {
+    const noEligibleStaff = eligibleStaff.length === 0;
 
     return (
       <div>
         <div className="mb-6">
-          <h2 className="text-xl font-bold text-stone-800 mb-1">Staff &amp; Date / Time</h2>
+          <h2 className="text-xl font-bold text-stone-800 mb-1">Choose a staff member</h2>
           <p className="text-stone-500 text-sm">
-            Who would you like, and when works for you?
+            Pick who you&apos;d like, or let us assign the best available.
           </p>
         </div>
 
-        {/* Staff selection */}
-        <div className="mb-6">
-          <p className="text-[11px] font-bold uppercase tracking-widest text-stone-400 mb-3">
-            Staff member
-          </p>
-          {noStaff ? (
-            <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-700">
-              No staff member offers all your selected services. Try a different combination.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {availableStaff.map((member) => {
-                const isSelected = selectedStaff?.id === member.id;
-                return (
-                  <button
-                    key={member.id}
-                    type="button"
-                    onClick={() => setSelectedStaff(isSelected ? null : member)}
-                    className={[
-                      "flex items-center gap-3 p-4 rounded-xl border-2 transition-all duration-150 text-left",
-                      isSelected
-                        ? "border-rose-400 bg-rose-50"
-                        : "border-stone-100 bg-white hover:border-rose-200 hover:bg-rose-50/40",
-                    ].join(" ")}
-                  >
-                    <StaffAvatar member={member} />
-                    <div>
-                      <p
-                        className={[
-                          "font-semibold text-sm",
-                          isSelected ? "text-rose-700" : "text-stone-800",
-                        ].join(" ")}
-                      >
-                        {member.name}
-                      </p>
-                      {isSelected && (
-                        <p className="text-xs text-rose-400 mt-0.5">Selected</p>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        {noEligibleStaff ? (
+          <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-700">
+            No staff member offers all your selected services. Try a different combination.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3">
+            {/* No preference option */}
+            <button
+              type="button"
+              onClick={() => setSelectedStaffId(NO_PREFERENCE_ID)}
+              className={[
+                "flex items-center gap-4 p-4 rounded-xl border-2 transition-all duration-150 text-left",
+                selectedStaffId === NO_PREFERENCE_ID
+                  ? "border-rose-400 bg-rose-50"
+                  : "border-stone-100 bg-white hover:border-rose-200 hover:bg-rose-50/40",
+              ].join(" ")}
+            >
+              <div className="w-10 h-10 rounded-full bg-stone-100 text-stone-500 flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+              </div>
+              <div>
+                <p
+                  className={[
+                    "font-semibold text-sm",
+                    selectedStaffId === NO_PREFERENCE_ID ? "text-rose-700" : "text-stone-800",
+                  ].join(" ")}
+                >
+                  No preference
+                </p>
+                <p className="text-xs text-stone-400 mt-0.5">
+                  We&apos;ll assign the first available staff member
+                </p>
+              </div>
+            </button>
 
-        {/* Calendar — only show once staff is picked */}
-        {selectedStaff && (
-          <div className="mb-6">
-            <p className="text-[11px] font-bold uppercase tracking-widest text-stone-400 mb-3">
-              Pick a date
-            </p>
-            <div className="bg-stone-50 rounded-xl p-4 border border-stone-200">
-              <MiniCalendar selected={selectedDate} onSelect={setSelectedDate} />
-            </div>
+            {/* Individual staff cards */}
+            {eligibleStaff.map((member) => {
+              const isSelected = selectedStaffId === member.id;
+              return (
+                <button
+                  key={member.id}
+                  type="button"
+                  onClick={() => setSelectedStaffId(isSelected ? null : member.id)}
+                  className={[
+                    "flex items-center gap-4 p-4 rounded-xl border-2 transition-all duration-150 text-left",
+                    isSelected
+                      ? "border-rose-400 bg-rose-50"
+                      : "border-stone-100 bg-white hover:border-rose-200 hover:bg-rose-50/40",
+                  ].join(" ")}
+                >
+                  <StaffAvatar member={member} />
+                  <div>
+                    <p
+                      className={[
+                        "font-semibold text-sm",
+                        isSelected ? "text-rose-700" : "text-stone-800",
+                      ].join(" ")}
+                    >
+                      {member.name}
+                    </p>
+                    {isSelected && (
+                      <p className="text-xs text-rose-400 mt-0.5">Selected</p>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
 
+        <div className="flex gap-3 mt-8">
+          <button
+            type="button"
+            onClick={() => setStep(0)}
+            className="flex-1 h-12 rounded-xl border-2 border-stone-200 text-stone-600 text-sm font-medium hover:bg-stone-50 transition-colors"
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            disabled={!selectedStaffId || noEligibleStaff}
+            onClick={() => setStep(2)}
+            className="flex-1 h-12 rounded-xl bg-rose-500 text-white text-sm font-semibold hover:bg-rose-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm shadow-rose-200"
+          >
+            Continue
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Step 2: Date & Time ──────────────────────────────────────────────────────
+
+  function renderDateTimeStep() {
+    return (
+      <div>
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-stone-800 mb-1">Pick a date &amp; time</h2>
+          <p className="text-stone-500 text-sm">Choose when you&apos;d like your appointment.</p>
+        </div>
+
+        {/* Calendar */}
+        <div className="mb-6">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-stone-400 mb-3">
+            Select a date
+          </p>
+          <div className="bg-stone-50 rounded-xl p-4 border border-stone-200">
+            <MiniCalendar selected={selectedDate} onSelect={setSelectedDate} blackoutDates={blackoutDates} />
+          </div>
+        </div>
+
         {/* Time slots — only show once date is picked */}
-        {selectedStaff && selectedDate && (
+        {selectedDate && (
           <div className="mb-2">
             <p className="text-[11px] font-bold uppercase tracking-widest text-stone-400 mb-3">
-              Available times
+              Available times — {formatDateDisplay(selectedDate)}
             </p>
             {slotsLoading ? (
               <div className="flex items-center gap-2 text-sm text-stone-400 py-3">
@@ -649,11 +838,7 @@ export function BookingWizard({ salon, categories }: BookingWizardProps) {
               </div>
             ) : slots.length === 0 ? (
               <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 text-sm text-stone-500 text-center">
-                No available slots on{" "}
-                <span className="font-medium text-stone-700">
-                  {formatDateDisplay(selectedDate)}
-                </span>
-                . Try another date.
+                No available slots on this date. Try another date.
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
@@ -670,18 +855,45 @@ export function BookingWizard({ salon, categories }: BookingWizardProps) {
           </div>
         )}
 
+        {/* Dynamic pricing badge — shown after time is selected */}
+        {selectedDate && selectedTime && pricingInfo && pricingInfo.appliedRules.length > 0 && (
+          <div className="mt-4 rounded-xl border border-stone-200 bg-stone-50 p-3 space-y-1.5">
+            <p className="text-[11px] font-bold uppercase tracking-widest text-stone-400 mb-2">
+              Pricing for {pricingInfo.serviceName}
+            </p>
+            {pricingInfo.appliedRules.map((rule, i) => (
+              <div key={i} className="flex items-center justify-between text-xs">
+                <span className="text-stone-500 truncate">{rule.name}</span>
+                <span
+                  className={[
+                    "font-semibold ml-3 shrink-0",
+                    rule.adjustment >= 0 ? "text-red-500" : "text-green-600",
+                  ].join(" ")}
+                >
+                  {rule.adjustment >= 0 ? "+" : ""}
+                  {formatPrice(rule.adjustment, salon.currency)}
+                </span>
+              </div>
+            ))}
+            <div className="flex items-center justify-between text-sm border-t border-stone-200 pt-1.5 mt-1.5">
+              <span className="font-semibold text-stone-700">Final price</span>
+              <span className="font-bold text-rose-600">{formatPrice(pricingInfo.finalPrice, salon.currency)}</span>
+            </div>
+          </div>
+        )}
+
         <div className="flex gap-3 mt-8">
           <button
             type="button"
-            onClick={() => setStep(0)}
+            onClick={() => setStep(1)}
             className="flex-1 h-12 rounded-xl border-2 border-stone-200 text-stone-600 text-sm font-medium hover:bg-stone-50 transition-colors"
           >
             Back
           </button>
           <button
             type="button"
-            disabled={!selectedStaff || !selectedDate || !selectedTime}
-            onClick={() => setStep(2)}
+            disabled={!selectedDate || !selectedTime}
+            onClick={() => setStep(3)}
             className="flex-1 h-12 rounded-xl bg-rose-500 text-white text-sm font-semibold hover:bg-rose-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm shadow-rose-200"
           >
             Continue
@@ -691,13 +903,11 @@ export function BookingWizard({ salon, categories }: BookingWizardProps) {
     );
   }
 
-  // ── Step 2: Your Info ──────────────────────────────────────────────────────────
+  // ── Step 3: Your Info ────────────────────────────────────────────────────────
 
   function renderInfoStep() {
     return (
-      <form
-        onSubmit={handleSubmit(() => setStep(3))}
-      >
+      <form onSubmit={handleSubmit(() => setStep(4))}>
         <div className="mb-6">
           <h2 className="text-xl font-bold text-stone-800 mb-1">Your details</h2>
           <p className="text-stone-500 text-sm">We&apos;ll use this to confirm your booking.</p>
@@ -772,7 +982,7 @@ export function BookingWizard({ salon, categories }: BookingWizardProps) {
               htmlFor="note"
               className="block text-[11px] font-bold uppercase tracking-widest text-stone-400 mb-2"
             >
-              Note{" "}
+              Special Requests{" "}
               <span className="normal-case font-normal text-stone-400 tracking-normal">
                 (optional)
               </span>
@@ -780,7 +990,7 @@ export function BookingWizard({ salon, categories }: BookingWizardProps) {
             <textarea
               id="note"
               rows={3}
-              placeholder="Any special requests or allergies we should know?"
+              placeholder="Any special requests, allergies, or preferences we should know?"
               {...register("note")}
               className="w-full px-4 py-3 rounded-xl border-2 border-stone-200 bg-white text-stone-800 text-sm placeholder:text-stone-300 focus:outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100 transition-all resize-none"
             />
@@ -790,7 +1000,7 @@ export function BookingWizard({ salon, categories }: BookingWizardProps) {
         <div className="flex gap-3 mt-8">
           <button
             type="button"
-            onClick={() => setStep(1)}
+            onClick={() => setStep(2)}
             className="flex-1 h-12 rounded-xl border-2 border-stone-200 text-stone-600 text-sm font-medium hover:bg-stone-50 transition-colors"
           >
             Back
@@ -806,23 +1016,24 @@ export function BookingWizard({ salon, categories }: BookingWizardProps) {
     );
   }
 
-  // ── Step 3: Confirm ────────────────────────────────────────────────────────────
+  // ── Step 4: Confirm ──────────────────────────────────────────────────────────
 
   async function onConfirm() {
-    if (!selectedStaff || !selectedDate || !selectedTime || selectedServices.length === 0) return;
+    if (!selectedStaffId || !selectedDate || !selectedTime || selectedServices.length === 0) return;
     const values = getValues();
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      const result = await requestBooking(salon.slug, {
+      const result = await bookAppointmentPublic({
+        salonId: salon.id,
         serviceIds: selectedServices.map((s) => s.id),
-        staffId: selectedStaff.id,
+        staffId: selectedStaffId === NO_PREFERENCE_ID ? null : selectedStaffId,
         date: selectedDate,
         startTime: selectedTime,
         clientName: values.clientName,
         clientPhone: values.clientPhone,
-        clientEmail: values.clientEmail,
-        note: values.note,
+        clientEmail: values.clientEmail || undefined,
+        notes: values.note || undefined,
       });
       if (result.success) {
         router.push(`/book/${salon.slug}/confirmation/${result.appointmentId}`);
@@ -836,6 +1047,11 @@ export function BookingWizard({ salon, categories }: BookingWizardProps) {
 
   function renderConfirmStep() {
     const values = getValues();
+    const staffLabel =
+      selectedStaffId === NO_PREFERENCE_ID
+        ? "Any available"
+        : (staff.find((m) => m.id === selectedStaffId)?.name ?? "—");
+
     return (
       <div>
         <div className="mb-6">
@@ -843,7 +1059,6 @@ export function BookingWizard({ salon, categories }: BookingWizardProps) {
           <p className="text-stone-500 text-sm">Review the details below before confirming.</p>
         </div>
 
-        {/* Booking summary card */}
         <div className="rounded-xl border-2 border-stone-100 bg-stone-50 divide-y divide-stone-100 text-sm mb-4">
           {/* Services */}
           <div className="p-4">
@@ -855,18 +1070,14 @@ export function BookingWizard({ salon, categories }: BookingWizardProps) {
                 <div key={svc.id} className="flex justify-between">
                   <div>
                     <span className="font-medium text-stone-700">{svc.name}</span>
-                    <span className="text-stone-400 ml-2 text-xs">
-                      {formatDuration(svc.durationMins)}
-                    </span>
+                    <span className="text-stone-400 ml-2 text-xs">{formatDuration(svc.durationMins)}</span>
                   </div>
-                  <span className="font-medium text-stone-700">
-                    {formatPrice(svc.price, salon.currency)}
-                  </span>
+                  <span className="font-medium text-stone-700">{formatPrice(svc.price, salon.currency)}</span>
                 </div>
               ))}
               {selectedServices.length > 1 && (
                 <div className="flex justify-between pt-2 border-t border-stone-200 font-semibold text-stone-800">
-                  <span>Total</span>
+                  <span>Total · {formatDuration(totalDuration)}</span>
                   <span>{formatPrice(totalPrice, salon.currency)}</span>
                 </div>
               )}
@@ -875,12 +1086,18 @@ export function BookingWizard({ salon, categories }: BookingWizardProps) {
 
           {/* Staff */}
           <div className="p-4 flex items-center gap-3">
-            <StaffAvatar member={selectedStaff!} size="sm" />
+            {selectedStaffId === NO_PREFERENCE_ID ? (
+              <div className="w-8 h-8 rounded-full bg-stone-200 text-stone-500 flex items-center justify-center shrink-0">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+              </div>
+            ) : (
+              <StaffAvatar member={staff.find((m) => m.id === selectedStaffId) ?? { name: staffLabel }} size="sm" />
+            )}
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-widest text-stone-400 leading-none mb-1">
-                Staff
-              </p>
-              <p className="font-medium text-stone-700">{selectedStaff?.name}</p>
+              <p className="text-[11px] font-bold uppercase tracking-widest text-stone-400 leading-none mb-1">Staff</p>
+              <p className="font-medium text-stone-700">{staffLabel}</p>
             </div>
           </div>
 
@@ -903,9 +1120,7 @@ export function BookingWizard({ salon, categories }: BookingWizardProps) {
             </p>
             <p className="font-medium text-stone-700">{values.clientName}</p>
             <p className="text-stone-500 text-xs mt-0.5">{values.clientPhone}</p>
-            {values.clientEmail && (
-              <p className="text-stone-500 text-xs">{values.clientEmail}</p>
-            )}
+            {values.clientEmail && <p className="text-stone-500 text-xs">{values.clientEmail}</p>}
             {values.note && (
               <p className="text-stone-500 text-xs mt-1 italic">&ldquo;{values.note}&rdquo;</p>
             )}
@@ -921,7 +1136,7 @@ export function BookingWizard({ salon, categories }: BookingWizardProps) {
         <div className="flex gap-3">
           <button
             type="button"
-            onClick={() => setStep(2)}
+            onClick={() => setStep(3)}
             disabled={isSubmitting}
             className="flex-1 h-12 rounded-xl border-2 border-stone-200 text-stone-600 text-sm font-medium hover:bg-stone-50 transition-colors disabled:opacity-40"
           >
@@ -959,15 +1174,14 @@ export function BookingWizard({ salon, categories }: BookingWizardProps) {
     );
   }
 
-  // ── Wizard content only (page.tsx owns the outer layout) ─────────────────────
-
   return (
     <>
       <StepIndicator current={step} />
       {step === 0 && renderServiceStep()}
-      {step === 1 && renderStaffTimeStep()}
-      {step === 2 && renderInfoStep()}
-      {step === 3 && renderConfirmStep()}
+      {step === 1 && renderStaffStep()}
+      {step === 2 && renderDateTimeStep()}
+      {step === 3 && renderInfoStep()}
+      {step === 4 && renderConfirmStep()}
     </>
   );
 }

@@ -160,6 +160,29 @@ export async function deleteCoupon(
   }
 }
 
+// ── toggleCouponActive ─────────────────────────────────────────────────────────
+
+export async function toggleCouponActive(
+  id: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  if (!id) return { success: false, error: "id is required" };
+
+  try {
+    const coupon = await prisma.coupon.findUnique({ where: { id } });
+    if (!coupon) return { success: false, error: "Coupon not found" };
+
+    await prisma.coupon.update({
+      where: { id },
+      data: { active: !coupon.active },
+    });
+
+    return { success: true };
+  } catch (err) {
+    console.error("[toggleCouponActive]", err);
+    return { success: false, error: "Failed to toggle coupon" };
+  }
+}
+
 // ── validateCoupon ─────────────────────────────────────────────────────────────
 
 export async function validateCoupon(

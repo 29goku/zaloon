@@ -1,10 +1,14 @@
 import { prisma } from "@/lib/prisma";
-import { ClipboardList, Clock, Bell, Users, CalendarCheck } from "lucide-react";
+import { ClipboardList, Clock, Bell, Users, CalendarCheck, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { AddWaitlistDialog } from "@/components/waitlist/add-waitlist-dialog";
 import { WaitlistActionButtons } from "./waitlist-actions";
+import { WaitlistViewToggle } from "@/components/waitlist/waitlist-view-toggle";
+import { KanbanCardActions } from "@/components/waitlist/kanban-card-actions";
+import type { KanbanEntry } from "@/components/waitlist/waitlist-kanban";
 import type { WaitlistStatus } from "@/app/actions/waitlist";
 
 export const dynamic = "force-dynamic";
@@ -89,6 +93,7 @@ export default async function WaitlistPage({
 
   const salon = await prisma.salon.findFirst({ select: { id: true, slug: true } });
   const bookingLink = salon?.slug ? `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/book/${salon.slug}` : undefined;
+  const waitlistLink = salon?.slug ? `/book/${salon.slug}/waitlist` : undefined;
 
   const [entries, services, staff, allWaitingEntries, counts] = await Promise.all([
     prisma.waitlist.findMany({
@@ -133,21 +138,26 @@ export default async function WaitlistPage({
   // Notified today
   const notifiedTodayCount = await prisma.waitlist.count({
     where: {
-      status: "NOTIFIED",
       notifiedAt: { gte: todayStart },
     },
   });
 
-  // Converted to appointments this week (BOOKED status set this week)
-  const convertedThisWeekCount = await prisma.waitlist.count({
+  // Converted to appointments today (BOOKED status set today)
+  const convertedTodayCount = await prisma.waitlist.count({
     where: {
       status: "BOOKED",
-      updatedAt: { gte: weekStart },
+      updatedAt: { gte: todayStart },
     },
   });
 
+  // Average wait time = total queue time / number waiting
+  const totalQueueMins = allWaitingEntries.reduce(
+    (sum, e) => sum + (e.Service?.durationMins ?? DEFAULT_SERVICE_DURATION),
+    0
+  );
+  const avgWaitMins = waitingCount > 0 ? Math.round(totalQueueMins / waitingCount) : 0;
+
   // Build estimated wait per entry (for WAITING entries in order)
-  // waitingEntryEstimates: map id -> estimatedWaitMins
   const waitingEstimateMap = new Map<string, number>();
   let cumulativeMins = 0;
   for (const e of allWaitingEntries) {
@@ -161,6 +171,190 @@ export default async function WaitlistPage({
     estimatedWaitMins: e.status === "WAITING" ? (waitingEstimateMap.get(e.id) ?? null) : null,
     displayPosition: e.status === "WAITING" ? (allWaitingEntries.findIndex((w) => w.id === e.id) + 1) : idx + 1,
   }));
+
+  // Build KanbanEntry list (serializable — convert Dates to timestamps then back)
+  const kanbanEntries: KanbanEntry[] = entriesWithEstimate.map((e) => ({
+    id: e.id,
+    name: e.name,
+    phone: e.phone,
+    note: e.note,
+    preferredDate: e.preferredDate,
+    preferredTime: e.preferredTime,
+    status: e.status,
+    position: e.position,
+    notifiedAt: e.notifiedAt,
+    createdAt: e.createdAt,
+    estimatedWaitMins: e.estimatedWaitMins,
+    displayPosition: e.displayPosition,
+    clientId: e.Client?.id ?? null,
+    serviceId: e.Service?.id ?? null,
+    staffId: e.Staff?.id ?? null,
+    Service: e.Service ? { id: e.Service.id, name: e.Service.name } : null,
+    Staff: e.Staff ? { id: e.Staff.id, name: e.Staff.name } : null,
+  }));
+
+  // Table content (passed to the view toggle as a slot)
+  const tableContent = entriesWithEstimate.length === 0 ? (
+    <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
+      <ClipboardList className="w-10 h-10 text-muted-foreground/40" />
+      <p className="text-muted-foreground text-sm">No waitlist entries found.</p>
+      <AddWaitlistDialog services={services} staff={staff} />
+    </div>
+  ) : (
+    <div className="overflow-x-auto rounded-xl border border-border">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border bg-muted/40">
+            <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide w-8">
+              #
+            </th>
+            <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">
+              Client
+            </th>
+            <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">
+              Phone
+            </th>
+            <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">
+              Service
+            </th>
+            <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">
+              Preferred
+            </th>
+            <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">
+              Est. wait
+            </th>
+            <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">
+              Joined
+            </th>
+            <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">
+              Status
+            </th>
+            <th className="px-4 py-3 text-right font-semibold text-muted-foreground text-xs uppercase tracking-wide">
+              Actions
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {entriesWithEstimate.map((entry) => (
+            <tr
+              key={entry.id}
+              className={cn(
+                "bg-card hover:bg-muted/30 transition-colors",
+                entry.slotAvailableAt && entry.status === "WAITING" && "bg-green-50/50 dark:bg-green-950/20"
+              )}
+            >
+              {/* Position number */}
+              <td className="px-4 py-3">
+                <span className={cn(
+                  "inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold",
+                  entry.status === "WAITING"
+                    ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
+                    : "text-muted-foreground font-mono"
+                )}>
+                  {entry.displayPosition}
+                </span>
+              </td>
+
+              {/* Client name + notes */}
+              <td className="px-4 py-3">
+                <div className="font-medium text-foreground">{entry.name}</div>
+                {entry.note && (
+                  <div className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+                    {entry.note}
+                  </div>
+                )}
+                {entry.slotAvailableAt && entry.status === "WAITING" && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-1.5 py-0.5 rounded-full mt-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+                    Slot available
+                  </span>
+                )}
+              </td>
+
+              <td className="px-4 py-3 text-muted-foreground">
+                {entry.phone ?? <span className="text-muted-foreground/50">—</span>}
+              </td>
+
+              <td className="px-4 py-3 text-muted-foreground">
+                {entry.Service?.name ?? <span className="text-muted-foreground/50">Any</span>}
+              </td>
+
+              <td className="px-4 py-3">
+                <div className="flex flex-col gap-0.5">
+                  {entry.preferredDate && (
+                    <span className="text-xs text-foreground">{entry.preferredDate}</span>
+                  )}
+                  {entry.preferredTime && (
+                    <span className="text-[10px] text-muted-foreground capitalize">
+                      {preferredTimeBadge(entry.preferredTime)} ({entry.preferredTime})
+                    </span>
+                  )}
+                  {!entry.preferredDate && !entry.preferredTime && (
+                    <span className="text-muted-foreground/50">Any</span>
+                  )}
+                </div>
+              </td>
+
+              {/* Estimated wait */}
+              <td className="px-4 py-3 whitespace-nowrap">
+                {entry.estimatedWaitMins !== null ? (
+                  <span className={cn(
+                    "text-xs font-medium",
+                    entry.estimatedWaitMins === 0
+                      ? "text-green-600 dark:text-green-400"
+                      : "text-muted-foreground"
+                  )}>
+                    {formatEstimatedWait(entry.estimatedWaitMins)}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground/50">—</span>
+                )}
+              </td>
+
+              <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
+                {formatWaitTimeLabel(entry.createdAt)}
+              </td>
+
+              <td className="px-4 py-3">
+                <Badge className={cn("text-xs font-medium", statusBadgeClass(entry.status))}>
+                  {entry.status}
+                </Badge>
+                {entry.notifiedAt && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    Notified {formatWaitTime(entry.notifiedAt)} ago
+                  </p>
+                )}
+              </td>
+
+              <td className="px-4 py-3 text-right">
+                <WaitlistActionButtons
+                  id={entry.id}
+                  currentStatus={entry.status}
+                  position={entry.displayPosition}
+                  totalWaiting={waitingCount}
+                  entry={{
+                    name: entry.name,
+                    phone: entry.phone,
+                    clientId: entry.Client?.id ?? null,
+                    serviceId: entry.Service?.id ?? null,
+                    serviceName: entry.Service?.name ?? null,
+                    staffId: entry.Staff?.id ?? null,
+                    staffName: entry.Staff?.name ?? null,
+                    preferredDate: entry.preferredDate,
+                    preferredTime: entry.preferredTime,
+                    note: entry.note,
+                  }}
+                  services={services}
+                  staff={staff}
+                  bookingLink={bookingLink}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 
   return (
     <div className="p-4 md:p-6 space-y-6">
@@ -177,7 +371,20 @@ export default async function WaitlistPage({
             </p>
           </div>
         </div>
-        <AddWaitlistDialog services={services} staff={staff} />
+        <div className="flex items-center gap-2 flex-wrap">
+          {waitlistLink && (
+            <Link
+              href={waitlistLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border bg-background text-sm font-medium hover:bg-muted transition-colors"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Add to Waitlist
+            </Link>
+          )}
+          <AddWaitlistDialog services={services} staff={staff} />
+        </div>
       </div>
 
       {/* Stats bar */}
@@ -188,7 +395,19 @@ export default async function WaitlistPage({
           </div>
           <div>
             <p className="text-2xl font-bold leading-none">{waitingCount}</p>
-            <p className="text-xs text-muted-foreground mt-1">Waiting</p>
+            <p className="text-xs text-muted-foreground mt-1">Waiting now</p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+            <Clock className="w-4 h-4 text-primary" />
+          </div>
+          <div>
+            <p className="text-2xl font-bold leading-none">
+              {waitingCount > 0 ? formatEstimatedWait(avgWaitMins) : "—"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">Avg wait time</p>
           </div>
         </div>
 
@@ -207,27 +426,8 @@ export default async function WaitlistPage({
             <CalendarCheck className="w-4 h-4 text-green-600 dark:text-green-400" />
           </div>
           <div>
-            <p className="text-2xl font-bold leading-none">{convertedThisWeekCount}</p>
-            <p className="text-xs text-muted-foreground mt-1">Booked this week</p>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-            <Clock className="w-4 h-4 text-primary" />
-          </div>
-          <div>
-            <p className="text-2xl font-bold leading-none">
-              {waitingCount > 0
-                ? formatEstimatedWait(
-                    allWaitingEntries.reduce(
-                      (sum, e) => sum + (e.Service?.durationMins ?? DEFAULT_SERVICE_DURATION),
-                      0
-                    )
-                  )
-                : "—"}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">Total queue time</p>
+            <p className="text-2xl font-bold leading-none">{convertedTodayCount}</p>
+            <p className="text-xs text-muted-foreground mt-1">Converted today</p>
           </div>
         </div>
       </div>
@@ -265,168 +465,21 @@ export default async function WaitlistPage({
         })}
       </div>
 
-      {/* Table / list */}
-      {entriesWithEstimate.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
-          <ClipboardList className="w-10 h-10 text-muted-foreground/40" />
-          <p className="text-muted-foreground text-sm">No waitlist entries found.</p>
-          <AddWaitlistDialog services={services} staff={staff} />
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/40">
-                <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide w-8">
-                  #
-                </th>
-                <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">
-                  Client
-                </th>
-                <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">
-                  Phone
-                </th>
-                <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">
-                  Service
-                </th>
-                <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">
-                  Preferred
-                </th>
-                <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">
-                  Est. wait
-                </th>
-                <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">
-                  Joined
-                </th>
-                <th className="px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide">
-                  Status
-                </th>
-                <th className="px-4 py-3 text-right font-semibold text-muted-foreground text-xs uppercase tracking-wide">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {entriesWithEstimate.map((entry) => (
-                <tr
-                  key={entry.id}
-                  className={cn(
-                    "bg-card hover:bg-muted/30 transition-colors",
-                    entry.slotAvailableAt && entry.status === "WAITING" && "bg-green-50/50 dark:bg-green-950/20"
-                  )}
-                >
-                  {/* Position number */}
-                  <td className="px-4 py-3">
-                    <span className={cn(
-                      "inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold",
-                      entry.status === "WAITING"
-                        ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
-                        : "text-muted-foreground font-mono"
-                    )}>
-                      {entry.displayPosition}
-                    </span>
-                  </td>
-
-                  {/* Client name + notes */}
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-foreground">{entry.name}</div>
-                    {entry.note && (
-                      <div className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
-                        {entry.note}
-                      </div>
-                    )}
-                    {entry.slotAvailableAt && entry.status === "WAITING" && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-1.5 py-0.5 rounded-full mt-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
-                        Slot available
-                      </span>
-                    )}
-                  </td>
-
-                  <td className="px-4 py-3 text-muted-foreground">
-                    {entry.phone ?? <span className="text-muted-foreground/50">—</span>}
-                  </td>
-
-                  <td className="px-4 py-3 text-muted-foreground">
-                    {entry.Service?.name ?? <span className="text-muted-foreground/50">Any</span>}
-                  </td>
-
-                  <td className="px-4 py-3">
-                    <div className="flex flex-col gap-0.5">
-                      {entry.preferredDate && (
-                        <span className="text-xs text-foreground">{entry.preferredDate}</span>
-                      )}
-                      {entry.preferredTime && (
-                        <span className="text-[10px] text-muted-foreground capitalize">
-                          {preferredTimeBadge(entry.preferredTime)} ({entry.preferredTime})
-                        </span>
-                      )}
-                      {!entry.preferredDate && !entry.preferredTime && (
-                        <span className="text-muted-foreground/50">Any</span>
-                      )}
-                    </div>
-                  </td>
-
-                  {/* Estimated wait */}
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    {entry.estimatedWaitMins !== null ? (
-                      <span className={cn(
-                        "text-xs font-medium",
-                        entry.estimatedWaitMins === 0
-                          ? "text-green-600 dark:text-green-400"
-                          : "text-muted-foreground"
-                      )}>
-                        {formatEstimatedWait(entry.estimatedWaitMins)}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground/50">—</span>
-                    )}
-                  </td>
-
-                  <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                    {formatWaitTimeLabel(entry.createdAt)}
-                  </td>
-
-                  <td className="px-4 py-3">
-                    <Badge className={cn("text-xs font-medium", statusBadgeClass(entry.status))}>
-                      {entry.status}
-                    </Badge>
-                    {entry.notifiedAt && (
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
-                        Notified {formatWaitTime(entry.notifiedAt)} ago
-                      </p>
-                    )}
-                  </td>
-
-                  <td className="px-4 py-3 text-right">
-                    <WaitlistActionButtons
-                      id={entry.id}
-                      currentStatus={entry.status}
-                      position={entry.displayPosition}
-                      totalWaiting={waitingCount}
-                      entry={{
-                        name: entry.name,
-                        phone: entry.phone,
-                        clientId: entry.Client?.id ?? null,
-                        serviceId: entry.Service?.id ?? null,
-                        serviceName: entry.Service?.name ?? null,
-                        staffId: entry.Staff?.id ?? null,
-                        staffName: entry.Staff?.name ?? null,
-                        preferredDate: entry.preferredDate,
-                        preferredTime: entry.preferredTime,
-                        note: entry.note,
-                      }}
-                      services={services}
-                      staff={staff}
-                      bookingLink={bookingLink}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {/* View toggle (table / kanban) */}
+      <WaitlistViewToggle
+        entries={kanbanEntries}
+        totalWaiting={waitingCount}
+        tableContent={tableContent}
+        kanbanActions={(entry: KanbanEntry) => (
+          <KanbanCardActions
+            entry={entry}
+            services={services}
+            staff={staff}
+            totalWaiting={waitingCount}
+            bookingLink={bookingLink}
+          />
+        )}
+      />
     </div>
   );
 }

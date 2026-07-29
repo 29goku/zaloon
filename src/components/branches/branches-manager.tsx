@@ -63,15 +63,30 @@ const TIMEZONES = [
 
 // ─── Empty form defaults ───────────────────────────────────────────────────
 
+function defaultHours() {
+  const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+  const result: Record<string, { open: string; close: string; closed: boolean }> = {};
+  for (const day of days) {
+    result[day] = { open: "09:00", close: "18:00", closed: day === "sunday" };
+  }
+  return result;
+}
+
 function emptyForm(): Omit<Branch, "id"> {
   return {
     name: "",
     address: "",
+    city: "",
     phone: "",
     email: "",
+    manager: "",
     isMain: false,
     isActive: true,
+    active: true,
     timezone: "UTC",
+    staffIds: [],
+    businessHours: defaultHours(),
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -86,7 +101,21 @@ interface BranchFormModalProps {
 
 function BranchFormModal({ open, onClose, initial, onSaved }: BranchFormModalProps) {
   const [form, setForm] = useState<Omit<Branch, "id">>(
-    initial ? { name: initial.name, address: initial.address, phone: initial.phone, email: initial.email, isMain: initial.isMain, isActive: initial.isActive, timezone: initial.timezone } : emptyForm()
+    initial ? {
+      name: initial.name,
+      address: initial.address,
+      city: initial.city ?? "",
+      phone: initial.phone ?? "",
+      email: initial.email ?? "",
+      manager: initial.manager ?? "",
+      isMain: initial.isMain,
+      isActive: initial.isActive,
+      active: initial.active ?? true,
+      timezone: initial.timezone ?? "UTC",
+      staffIds: initial.staffIds ?? [],
+      businessHours: initial.businessHours ?? defaultHours(),
+      createdAt: initial.createdAt ?? new Date().toISOString(),
+    } : emptyForm()
   );
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -127,7 +156,21 @@ function BranchFormModal({ open, onClose, initial, onSaved }: BranchFormModalPro
   if (open && !lastOpen) {
     setLastOpen(true);
     setError(null);
-    setForm(initial ? { name: initial.name, address: initial.address, phone: initial.phone, email: initial.email, isMain: initial.isMain, isActive: initial.isActive, timezone: initial.timezone } : emptyForm());
+    setForm(initial ? {
+      name: initial.name,
+      address: initial.address,
+      city: initial.city ?? "",
+      phone: initial.phone ?? "",
+      email: initial.email ?? "",
+      manager: initial.manager ?? "",
+      isMain: initial.isMain,
+      isActive: initial.isActive,
+      active: initial.active ?? true,
+      timezone: initial.timezone ?? "UTC",
+      staffIds: initial.staffIds ?? [],
+      businessHours: initial.businessHours ?? defaultHours(),
+      createdAt: initial.createdAt ?? new Date().toISOString(),
+    } : emptyForm());
   } else if (!open && lastOpen) {
     setLastOpen(false);
   }

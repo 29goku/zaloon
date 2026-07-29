@@ -676,6 +676,250 @@ export async function saveReminderSettings(
   }
 }
 
+// ─── Revenue Goals ────────────────────────────────────────────────────────
+
+export interface RevenueGoals {
+  weekly: number;
+  monthly: number;
+  annual: number;
+}
+
+const DEFAULT_REVENUE_GOALS: RevenueGoals = {
+  weekly: 0,
+  monthly: 0,
+  annual: 0,
+};
+
+export async function getRevenueGoals(): Promise<RevenueGoals> {
+  const salon = await prisma.salon.findFirst({ select: { businessHours: true } });
+  if (!salon?.businessHours) return DEFAULT_REVENUE_GOALS;
+  try {
+    const parsed = JSON.parse(salon.businessHours);
+    if (parsed && parsed.__revenueGoals) {
+      return { ...DEFAULT_REVENUE_GOALS, ...parsed.__revenueGoals };
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_REVENUE_GOALS;
+}
+
+export async function saveRevenueGoals(
+  goals: RevenueGoals
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const salon = await prisma.salon.findFirst();
+    if (!salon) return { success: false, error: "No salon found" };
+
+    let existing: Record<string, unknown> = {};
+    if (salon.businessHours) {
+      try {
+        const prev = JSON.parse(salon.businessHours);
+        if (prev && typeof prev === "object" && !Array.isArray(prev)) {
+          existing = prev;
+        } else if (Array.isArray(prev)) {
+          existing = { __hours: prev };
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    const merged = { ...existing, __revenueGoals: goals };
+
+    await prisma.salon.update({
+      where: { id: salon.id },
+      data: {
+        updatedAt: new Date(),
+        businessHours: JSON.stringify(merged),
+      },
+    });
+
+    return { success: true };
+  } catch (err) {
+    console.error("[saveRevenueGoals]", err);
+    return { success: false, error: "Failed to save revenue goals" };
+  }
+}
+
+// ─── Revenue Goals aliases (for components that import updateRevenueGoals) ───
+
+export async function updateRevenueGoals(goals: {
+  daily?: number;
+  weekly?: number;
+  monthly?: number;
+  annual?: number;
+}): Promise<{ success: boolean; error?: string }> {
+  const current = await getRevenueGoals();
+  return saveRevenueGoals({
+    weekly: goals.weekly ?? current.weekly,
+    monthly: goals.monthly ?? current.monthly,
+    annual: goals.annual ?? current.annual,
+  });
+}
+
+// ─── Business Hours (dedicated read/write) ───────────────────────────────────
+
+export interface BusinessHourEntry {
+  day: string;
+  isOpen: boolean;
+  openTime: string;
+  closeTime: string;
+}
+
+export interface SpecialHoursEntry {
+  date: string;       // YYYY-MM-DD
+  description: string;
+  closed: boolean;
+  openTime?: string;
+  closeTime?: string;
+}
+
+export interface BusinessHoursConfig {
+  weeklyHours: BusinessHourEntry[];
+  specialHours: SpecialHoursEntry[];
+}
+
+const DEFAULT_WEEKLY_HOURS: BusinessHourEntry[] = [
+  "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+].map((day) => ({
+  day,
+  isOpen: day !== "Sunday",
+  openTime: "09:00",
+  closeTime: "19:00",
+}));
+
+const DEFAULT_BUSINESS_HOURS_CONFIG: BusinessHoursConfig = {
+  weeklyHours: DEFAULT_WEEKLY_HOURS,
+  specialHours: [],
+};
+
+export async function getBusinessHours(): Promise<BusinessHoursConfig> {
+  const salon = await prisma.salon.findFirst({ select: { businessHours: true } });
+  if (!salon?.businessHours) return DEFAULT_BUSINESS_HOURS_CONFIG;
+  try {
+    const parsed = JSON.parse(salon.businessHours);
+    // Support legacy plain array format
+    if (Array.isArray(parsed) && parsed.length === 7) {
+      return { weeklyHours: parsed as BusinessHourEntry[], specialHours: [] };
+    }
+    if (parsed && parsed.__businessHours) {
+      return { ...DEFAULT_BUSINESS_HOURS_CONFIG, ...parsed.__businessHours };
+    }
+    if (parsed && parsed.__hours && Array.isArray(parsed.__hours)) {
+      return { weeklyHours: parsed.__hours as BusinessHourEntry[], specialHours: [] };
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_BUSINESS_HOURS_CONFIG;
+}
+
+export async function saveBusinessHours(
+  config: BusinessHoursConfig
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const salon = await prisma.salon.findFirst();
+    if (!salon) return { success: false, error: "No salon found" };
+
+    let existing: Record<string, unknown> = {};
+    if (salon.businessHours) {
+      try {
+        const prev = JSON.parse(salon.businessHours);
+        if (prev && typeof prev === "object" && !Array.isArray(prev)) {
+          existing = prev;
+        } else if (Array.isArray(prev)) {
+          existing = { __hours: prev };
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    const merged = { ...existing, __businessHours: config };
+
+    await prisma.salon.update({
+      where: { id: salon.id },
+      data: { updatedAt: new Date(), businessHours: JSON.stringify(merged) },
+    });
+
+    return { success: true };
+  } catch (err) {
+    console.error("[saveBusinessHours]", err);
+    return { success: false, error: "Failed to save business hours" };
+  }
+}
+
+// ─── User / Team Management ───────────────────────────────────────────────────
+
+const createUserSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Invalid email").optional().or(z.literal("")),
+  phone: z.string().optional(),
+  role: z.enum(["OWNER", "MANAGER", "RECEPTIONIST", "VIEWER"]).default("RECEPTIONIST"),
+});
+
+export type CreateUserInput = z.infer<typeof createUserSchema>;
+
+export async function createUser(
+  data: CreateUserInput
+): Promise<{ success: true; id: string } | { success: false; error: string }> {
+  const parsed = createUserSchema.safeParse(data);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  try {
+    const salon = await prisma.salon.findFirst();
+    if (!salon) return { success: false, error: "No salon found" };
+
+    const id = randomUUID();
+    await prisma.user.create({
+      data: {
+        id,
+        salonId: salon.id,
+        name: parsed.data.name,
+        email: parsed.data.email || null,
+        phone: parsed.data.phone || null,
+        role: parsed.data.role,
+      },
+    });
+
+    return { success: true, id };
+  } catch (err) {
+    console.error("[createUser]", err);
+    return { success: false, error: "Failed to create user" };
+  }
+}
+
+export async function updateUserRole(
+  userId: string,
+  role: "OWNER" | "MANAGER" | "RECEPTIONIST" | "VIEWER"
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { role },
+    });
+    return { success: true };
+  } catch (err) {
+    console.error("[updateUserRole]", err);
+    return { success: false, error: "Failed to update role" };
+  }
+}
+
+export async function deleteUser(
+  userId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    await prisma.user.delete({ where: { id: userId } });
+    return { success: true };
+  } catch (err) {
+    console.error("[deleteUser]", err);
+    return { success: false, error: "Failed to remove user" };
+  }
+}
+
 // ─── Add Branch ────────────────────────────────────────────────────────────
 
 const addBranchSchema = z.object({
@@ -724,5 +968,327 @@ export async function addBranch(
     if (err instanceof Error && err.message === "NEXT_REDIRECT") throw err;
     console.error("[addBranch]", err);
     return { success: false, error: "Failed to create branch" };
+  }
+}
+
+// ─── Shared helper ────────────────────────────────────────────────────────────
+
+async function loadBusinessHoursBlob(): Promise<Record<string, unknown>> {
+  const salon = await prisma.salon.findFirst({ select: { businessHours: true } });
+  if (!salon?.businessHours) return {};
+  try {
+    const parsed = JSON.parse(salon.businessHours);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    if (Array.isArray(parsed)) return { __hours: parsed };
+  } catch { /* ignore */ }
+  return {};
+}
+
+async function saveBusinessHoursKey(key: string, value: unknown): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const salon = await prisma.salon.findFirst();
+    if (!salon) return { success: false, error: "No salon found" };
+    const existing = await loadBusinessHoursBlob();
+    const merged = { ...existing, [key]: value };
+    await prisma.salon.update({ where: { id: salon.id }, data: { updatedAt: new Date(), businessHours: JSON.stringify(merged) } });
+    return { success: true };
+  } catch (err) {
+    console.error(`[saveBusinessHoursKey:${key}]`, err);
+    return { success: false, error: "Failed to save settings" };
+  }
+}
+
+// ─── Blackout Dates ───────────────────────────────────────────────────────────
+
+export interface BlackoutDate {
+  id: string;
+  startDate: string;  // YYYY-MM-DD
+  endDate: string;    // YYYY-MM-DD (same as start for single day)
+  reason?: string;
+  recurring?: boolean; // repeat every year on same dates
+}
+
+export async function getBlackoutDates(): Promise<BlackoutDate[]> {
+  const blob = await loadBusinessHoursBlob();
+  if (Array.isArray(blob.__blackoutDates)) return blob.__blackoutDates as BlackoutDate[];
+  return [];
+}
+
+export async function addBlackoutDate(
+  data: Omit<BlackoutDate, "id">
+): Promise<{ success: boolean; error?: string }> {
+  const blob = await loadBusinessHoursBlob();
+  const current = Array.isArray(blob.__blackoutDates) ? (blob.__blackoutDates as BlackoutDate[]) : [];
+  const next: BlackoutDate = { id: randomUUID(), ...data };
+  return saveBusinessHoursKey("__blackoutDates", [...current, next]);
+}
+
+export async function removeBlackoutDate(id: string): Promise<{ success: boolean; error?: string }> {
+  const blob = await loadBusinessHoursBlob();
+  const current = Array.isArray(blob.__blackoutDates) ? (blob.__blackoutDates as BlackoutDate[]) : [];
+  return saveBusinessHoursKey("__blackoutDates", current.filter((b) => b.id !== id));
+}
+
+// ─── Service Booking Settings ─────────────────────────────────────────────────
+
+export interface ServiceBookingSetting {
+  onlineBookingEnabled: boolean;
+  maxAdvanceDays?: number;
+  requiredGapDays?: number;
+  bookingNote?: string;
+  depositRequired?: boolean;
+  depositAmount?: number;
+}
+
+export async function getServiceBookingSettings(): Promise<Record<string, ServiceBookingSetting>> {
+  const blob = await loadBusinessHoursBlob();
+  if (blob.__serviceBookingSettings && typeof blob.__serviceBookingSettings === "object" && !Array.isArray(blob.__serviceBookingSettings)) {
+    return blob.__serviceBookingSettings as Record<string, ServiceBookingSetting>;
+  }
+  return {};
+}
+
+export async function saveServiceBookingSettings(
+  settings: Record<string, ServiceBookingSetting>
+): Promise<{ success: boolean; error?: string }> {
+  return saveBusinessHoursKey("__serviceBookingSettings", settings);
+}
+
+// ─── Staff Booking Settings ───────────────────────────────────────────────────
+
+export interface StaffBookingSetting {
+  acceptsOnlineBookings: boolean;
+  maxClientsPerDay?: number;
+  advanceBookingDays?: number;
+}
+
+export async function getStaffBookingSettings(): Promise<Record<string, StaffBookingSetting>> {
+  const blob = await loadBusinessHoursBlob();
+  if (blob.__staffBookingSettings && typeof blob.__staffBookingSettings === "object" && !Array.isArray(blob.__staffBookingSettings)) {
+    return blob.__staffBookingSettings as Record<string, StaffBookingSetting>;
+  }
+  return {};
+}
+
+export async function saveStaffBookingSettings(
+  settings: Record<string, StaffBookingSetting>
+): Promise<{ success: boolean; error?: string }> {
+  return saveBusinessHoursKey("__staffBookingSettings", settings);
+}
+
+// ─── Confirmation Templates ───────────────────────────────────────────────────
+
+export interface ConfirmationTemplate {
+  smsBody?: string;
+  emailSubject?: string;
+  emailBody?: string;
+}
+
+export interface ConfirmationTemplates {
+  bookingConfirmed: ConfirmationTemplate;
+  bookingCancelled: ConfirmationTemplate;
+  reminder24h: ConfirmationTemplate;
+  reminder2h: ConfirmationTemplate;
+  followUp: ConfirmationTemplate;
+}
+
+const DEFAULT_CONFIRMATION_TEMPLATES: ConfirmationTemplates = {
+  bookingConfirmed: {
+    smsBody: "Hi {{clientName}}, your booking at {{salonName}} on {{date}} at {{time}} with {{staffName}} is confirmed. See you soon!",
+    emailSubject: "Booking Confirmed – {{salonName}}",
+    emailBody: "Hi {{clientName}},\n\nYour appointment is confirmed!\n\n**Date:** {{date}}\n**Time:** {{time}}\n**Services:** {{services}}\n**Staff:** {{staffName}}\n\n{{salonName}}\n{{salonPhone}}",
+  },
+  bookingCancelled: {
+    smsBody: "Hi {{clientName}}, your appointment at {{salonName}} on {{date}} has been cancelled. Contact us at {{salonPhone}} to rebook.",
+    emailSubject: "Booking Cancelled – {{salonName}}",
+    emailBody: "Hi {{clientName}},\n\nYour appointment on {{date}} at {{time}} has been cancelled.\n\nPlease contact us at {{salonPhone}} to rebook.\n\n{{salonName}}",
+  },
+  reminder24h: {
+    smsBody: "Reminder: Hi {{clientName}}, you have an appointment at {{salonName}} tomorrow at {{time}} with {{staffName}} for {{services}}.",
+    emailSubject: "Appointment Tomorrow – {{salonName}}",
+    emailBody: "Hi {{clientName}},\n\nJust a reminder that your appointment is tomorrow!\n\n**Time:** {{time}}\n**Services:** {{services}}\n**Staff:** {{staffName}}\n\nSee you soon!\n{{salonName}}",
+  },
+  reminder2h: {
+    smsBody: "Hi {{clientName}}, your appointment at {{salonName}} is in 2 hours at {{time}}. See you soon!",
+    emailSubject: "Appointment in 2 Hours – {{salonName}}",
+    emailBody: "Hi {{clientName}},\n\nYour appointment at {{salonName}} is coming up in 2 hours at {{time}}.\n\nSee you soon!",
+  },
+  followUp: {
+    smsBody: "Hi {{clientName}}, thank you for visiting {{salonName}}! We hope to see you again soon. Book your next appointment at {{salonName}}.",
+    emailSubject: "Thank You for Visiting – {{salonName}}",
+    emailBody: "Hi {{clientName}},\n\nThank you for visiting {{salonName}}! We hope you enjoyed your services.\n\nWe'd love to see you again soon.\n\n{{salonName}}\n{{salonPhone}}",
+  },
+};
+
+export async function getConfirmationTemplates(): Promise<ConfirmationTemplates> {
+  const blob = await loadBusinessHoursBlob();
+  if (blob.__confirmationTemplates && typeof blob.__confirmationTemplates === "object" && !Array.isArray(blob.__confirmationTemplates)) {
+    return { ...DEFAULT_CONFIRMATION_TEMPLATES, ...(blob.__confirmationTemplates as Partial<ConfirmationTemplates>) };
+  }
+  return DEFAULT_CONFIRMATION_TEMPLATES;
+}
+
+export async function saveConfirmationTemplates(
+  templates: ConfirmationTemplates
+): Promise<{ success: boolean; error?: string }> {
+  return saveBusinessHoursKey("__confirmationTemplates", templates);
+}
+
+// ─── Salon Info (branding page) ───────────────────────────────────────────────
+
+export async function updateSalonInfo(data: {
+  name?: string;
+  tagline?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  country?: string;
+  timezone?: string;
+  currency?: string;
+  taxRate?: number;
+  invoicePrefix?: string;
+  invoiceFooter?: string;
+  requireTaxId?: boolean;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const salon = await prisma.salon.findFirst();
+    if (!salon) return { success: false, error: "No salon found" };
+
+    const { tagline, requireTaxId, ...salonFields } = data;
+
+    await prisma.salon.update({
+      where: { id: salon.id },
+      data: {
+        updatedAt: new Date(),
+        ...(salonFields.name !== undefined && { name: salonFields.name }),
+        ...(salonFields.phone !== undefined && { phone: salonFields.phone || null }),
+        ...(salonFields.email !== undefined && { email: salonFields.email || null }),
+        ...(salonFields.address !== undefined && { address: salonFields.address || null }),
+        ...(salonFields.city !== undefined && { city: salonFields.city || null }),
+        ...(salonFields.country !== undefined && { country: salonFields.country }),
+        ...(salonFields.timezone !== undefined && { timezone: salonFields.timezone }),
+        ...(salonFields.currency !== undefined && { currency: salonFields.currency }),
+        ...(salonFields.taxRate !== undefined && { taxRate: salonFields.taxRate }),
+        ...(salonFields.invoicePrefix !== undefined && { invoicePrefix: salonFields.invoicePrefix || "INV" }),
+        ...(salonFields.invoiceFooter !== undefined && { invoiceFooter: salonFields.invoiceFooter || null }),
+      },
+    });
+
+    // Store tagline and requireTaxId inside businessHours JSON
+    if (tagline !== undefined || requireTaxId !== undefined) {
+      const existing = await loadBusinessHoursBlob();
+      const merged: Record<string, unknown> = { ...existing };
+      if (tagline !== undefined) merged.__tagline = tagline;
+      if (requireTaxId !== undefined) merged.__requireTaxId = requireTaxId;
+      await prisma.salon.update({
+        where: { id: salon.id },
+        data: { updatedAt: new Date(), businessHours: JSON.stringify(merged) },
+      });
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("[updateSalonInfo]", err);
+    return { success: false, error: "Failed to update salon info" };
+  }
+}
+
+export async function updateSalonLogo(base64: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const salon = await prisma.salon.findFirst();
+    if (!salon) return { success: false, error: "No salon found" };
+    await prisma.salon.update({
+      where: { id: salon.id },
+      data: { updatedAt: new Date(), logo: base64 || null },
+    });
+    return { success: true };
+  } catch (err) {
+    console.error("[updateSalonLogo]", err);
+    return { success: false, error: "Failed to update logo" };
+  }
+}
+
+export async function updateBusinessHoursGrid(
+  hours: Record<string, { open: boolean; openTime: string; closeTime: string }>
+): Promise<{ success: boolean; error?: string }> {
+  return saveBusinessHoursKey("__businessHours", hours);
+}
+
+export async function updateSocialLinks(links: {
+  instagram?: string;
+  facebook?: string;
+  tiktok?: string;
+  googleMaps?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  return saveBusinessHoursKey("__socialLinks", links);
+}
+
+// ─── Extended Booking Rules (booking settings page) ───────────────────────────
+
+export interface ExtendedBookingRules {
+  // Booking window
+  minNoticeHours: number;
+  maxAdvanceDays: number;
+  slotIntervalMins: number;
+  // Behavior
+  allowOnlineBooking: boolean;
+  requirePhone: boolean;
+  requireEmail: boolean;
+  autoConfirm: boolean;
+  maxPerSlot: number;
+  // Cancellation
+  allowOnlineCancellations: boolean;
+  cancellationCutoffHours: number;
+  cancellationFeeType: "none" | "fixed" | "percentage";
+  cancellationFeeAmount: number;
+  lateCancellationMessage: string;
+  // Deposit
+  requireDeposit: boolean;
+  depositType: "fixed" | "percentage";
+  depositAmount: number;
+}
+
+const DEFAULT_EXTENDED_BOOKING_RULES: ExtendedBookingRules = {
+  minNoticeHours: 1,
+  maxAdvanceDays: 30,
+  slotIntervalMins: 30,
+  allowOnlineBooking: true,
+  requirePhone: true,
+  requireEmail: false,
+  autoConfirm: true,
+  maxPerSlot: 1,
+  allowOnlineCancellations: true,
+  cancellationCutoffHours: 24,
+  cancellationFeeType: "none",
+  cancellationFeeAmount: 0,
+  lateCancellationMessage: "",
+  requireDeposit: false,
+  depositType: "fixed",
+  depositAmount: 0,
+};
+
+export async function getExtendedBookingRules(): Promise<ExtendedBookingRules> {
+  const blob = await loadBusinessHoursBlob();
+  if (blob.__extendedBookingRules && typeof blob.__extendedBookingRules === "object") {
+    return { ...DEFAULT_EXTENDED_BOOKING_RULES, ...(blob.__extendedBookingRules as Partial<ExtendedBookingRules>) };
+  }
+  return DEFAULT_EXTENDED_BOOKING_RULES;
+}
+
+export async function updateBookingRules(
+  rules: Partial<ExtendedBookingRules>
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const existing = await loadBusinessHoursBlob();
+    const current = (existing.__extendedBookingRules as Partial<ExtendedBookingRules>) ?? {};
+    return saveBusinessHoursKey("__extendedBookingRules", {
+      ...DEFAULT_EXTENDED_BOOKING_RULES,
+      ...current,
+      ...rules,
+    });
+  } catch (err) {
+    console.error("[updateBookingRules]", err);
+    return { success: false, error: "Failed to save booking rules" };
   }
 }

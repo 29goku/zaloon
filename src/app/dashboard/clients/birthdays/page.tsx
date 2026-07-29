@@ -28,6 +28,35 @@ export default async function BirthdaysPage() {
     return bday.getMonth() === currentMonth;
   });
 
+  // ── Upcoming birthdays in next 30 days ──────────────────────────────────────
+  const upcomingBirthdays = allBirthdayClients
+    .map((c) => {
+      const bday = new Date(c.birthday!);
+      // Create this year's birthday
+      const thisYear = new Date(now.getFullYear(), bday.getMonth(), bday.getDate());
+      // If already passed this year, use next year
+      const candidate =
+        thisYear < now
+          ? new Date(now.getFullYear() + 1, bday.getMonth(), bday.getDate())
+          : thisYear;
+      const diffMs = candidate.getTime() - now.getTime();
+      const daysUntil = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      return { ...c, daysUntil, upcomingDate: candidate };
+    })
+    .filter((c) => c.daysUntil > 0 && c.daysUntil <= 30)
+    .sort((a, b) => a.daysUntil - b.daysUntil);
+
+  const upcomingWithLastVisit = await Promise.all(
+    upcomingBirthdays.map(async (c) => {
+      const lastAppt = await prisma.appointment.findFirst({
+        where: { clientId: c.id, status: "COMPLETED" },
+        orderBy: { date: "desc" },
+        select: { date: true },
+      });
+      return { ...c, lastVisitDate: lastAppt?.date ?? null };
+    })
+  );
+
   // ── Anniversary clients this month ──────────────────────────────────────────
   // Anniversary = client.anniversary field OR first appointment date
   const allClients = salon
@@ -113,6 +142,10 @@ export default async function BirthdaysPage() {
       totalBirthdaysThisMonth={birthdayClientsThisMonth.length}
       totalAnniversariesThisMonth={anniversaryClientsThisMonth.length}
       wishesSentToday={wishesSentToday}
+      upcomingBirthdays={upcomingWithLastVisit.map((c) => ({
+        ...c,
+        birthday: c.birthday ?? null,
+      }))}
     />
   );
 }

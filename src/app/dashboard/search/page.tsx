@@ -8,6 +8,7 @@ import {
   Tag,
   Gift,
   Search,
+  Package,
 } from "lucide-react";
 import { globalSearchItems, type ResultType, type SearchResultItem } from "@/app/actions/search";
 
@@ -23,6 +24,7 @@ const CATEGORY_ORDER: ResultType[] = [
   "invoice",
   "coupon",
   "giftCard",
+  "inventory",
 ];
 
 const CATEGORY_LABEL: Record<ResultType, string> = {
@@ -33,6 +35,7 @@ const CATEGORY_LABEL: Record<ResultType, string> = {
   invoice: "Invoices",
   coupon: "Coupons",
   giftCard: "Gift Cards",
+  inventory: "Inventory",
 };
 
 const CATEGORY_ICON: Record<ResultType, React.ElementType> = {
@@ -43,6 +46,7 @@ const CATEGORY_ICON: Record<ResultType, React.ElementType> = {
   invoice: Receipt,
   coupon: Tag,
   giftCard: Gift,
+  inventory: Package,
 };
 
 // ─── page ─────────────────────────────────────────────────────────────────────

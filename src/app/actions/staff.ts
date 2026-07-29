@@ -205,3 +205,98 @@ export async function removeStaffService(
     return { success: false, error: "Failed to remove service" };
   }
 }
+
+// ─── createStaffMember (full onboarding wizard) ────────────────────────────────
+//
+// The Staff schema has no `role` or `notes` field.
+// We pack { color, role } into the `avatar` JSON string so both are persisted
+// without a schema migration.
+
+const createStaffMemberSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  phone: z.string().optional(),
+  role: z.string().optional(),
+  commissionPct: z.number().min(0).max(100),
+  avatarColor: z.string().optional(),
+  schedule: z.array(
+    z.object({
+      dayOfWeek: z.number().int().min(0).max(6),
+      startTime: z.string().min(1),
+      endTime: z.string().min(1),
+    })
+  ),
+  services: z.array(
+    z.object({
+      serviceId: z.string().min(1),
+      commissionOverridePct: z.number().min(0).max(100).optional(),
+    })
+  ),
+});
+
+export async function createStaffMember(data: {
+  name: string;
+  phone?: string;
+  role?: string;
+  commissionPct: number;
+  avatarColor?: string;
+  schedule: { dayOfWeek: number; startTime: string; endTime: string }[];
+  services: { serviceId: string; commissionOverridePct?: number }[];
+}): Promise<{ success: true; id: string } | { success: false; error: string }> {
+  const parsed = createStaffMemberSchema.safeParse(data);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  try {
+    const salon = await prisma.salon.findFirst();
+    if (!salon) return { success: false, error: "No salon found" };
+
+    const { name, phone, role, commissionPct, avatarColor, schedule, services } = parsed.data;
+
+    // Pack role + color into the avatar JSON field
+    const avatarJson = JSON.stringify({
+      color: avatarColor ?? "violet",
+      role: role ?? "",
+    });
+
+    const staffId = randomUUID();
+
+    await prisma.staff.create({
+      data: {
+        id: staffId,
+        salonId: salon.id,
+        name,
+        phone: phone ?? null,
+        commissionPct,
+        avatar: avatarJson,
+      },
+    });
+
+    if (schedule.length > 0) {
+      await prisma.shift.createMany({
+        data: schedule.map((s) => ({
+          id: randomUUID(),
+          staffId,
+          dayOfWeek: s.dayOfWeek,
+          startTime: s.startTime,
+          endTime: s.endTime,
+        })),
+      });
+    }
+
+    if (services.length > 0) {
+      await prisma.staffService.createMany({
+        data: services.map((s) => ({
+          staffId,
+          serviceId: s.serviceId,
+          commissionOverridePct: s.commissionOverridePct ?? null,
+        })),
+      });
+    }
+
+    return { success: true, id: staffId };
+  } catch (err) {
+    console.error("[createStaffMember]", err);
+    return { success: false, error: "Failed to create staff member" };
+  }
+}

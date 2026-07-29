@@ -1,10 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
-import { Download, DollarSign, TrendingUp, BarChart3 } from "lucide-react";
+import { DollarSign, TrendingUp, BarChart3, Clock, Users } from "lucide-react";
 import { Suspense } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PayrollDateControls } from "./payroll-date-controls";
 import { PayrollStaffRow } from "./payroll-staff-row";
+import { PayrollExportButton } from "./payroll-export-button";
+import { BulkMarkPaidButton } from "./bulk-mark-paid-button";
 import type { ServiceBreakdown } from "@/app/actions/payroll";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +34,15 @@ function endOfMonth(d: Date): Date {
 function presetRange(preset: string): { from: string; to: string } {
   const today = new Date();
   switch (preset) {
+    case "weekly": {
+      const start = startOfWeek(today);
+      return { from: toDateString(start), to: toDateString(today) };
+    }
+    case "bi-weekly": {
+      const twoWeeksAgo = new Date(today);
+      twoWeeksAgo.setDate(today.getDate() - 13);
+      return { from: toDateString(twoWeeksAgo), to: toDateString(today) };
+    }
     case "this-week": {
       return { from: toDateString(startOfWeek(today)), to: toDateString(today) };
     }
@@ -51,9 +62,30 @@ function presetRange(preset: string): { from: string; to: string } {
   }
 }
 
+// Period navigation helpers
+function shiftPeriod(
+  from: string,
+  to: string,
+  direction: "prev" | "next"
+): { from: string; to: string } {
+  const start = new Date(from);
+  const end = new Date(to);
+  const diffMs = end.getTime() - start.getTime();
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1;
+  const sign = direction === "prev" ? -1 : 1;
+
+  const newStart = new Date(start);
+  newStart.setDate(start.getDate() + sign * diffDays);
+  const newEnd = new Date(end);
+  newEnd.setDate(end.getDate() + sign * diffDays);
+
+  return { from: toDateString(newStart), to: toDateString(newEnd) };
+}
+
 const PRESETS = [
-  { id: "this-week", label: "This Week" },
-  { id: "this-month", label: "This Month" },
+  { id: "this-week", label: "Weekly" },
+  { id: "bi-weekly", label: "Bi-Weekly" },
+  { id: "this-month", label: "Monthly" },
   { id: "last-month", label: "Last Month" },
 ] as const;
 
@@ -96,6 +128,9 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
     to = defaults.to;
   }
 
+  const prevPeriod = shiftPeriod(from, to, "prev");
+  const nextPeriod = shiftPeriod(from, to, "next");
+
   // Fetch all staff with completed appointments + service breakdowns + paid records
   const staff = await prisma.staff.findMany({
     orderBy: { name: "asc" },
@@ -109,7 +144,7 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
           date: { gte: from, lte: to },
         },
         include: {
-          Invoice: { select: { total: true, status: true } },
+          Invoice: { select: { total: true, status: true, tip: true } },
           AppointmentService: {
             include: { Service: { select: { id: true, name: true } } },
           },
@@ -140,11 +175,13 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
     >();
 
     let totalRevenue = 0;
+    let totalTips = 0;
 
     for (const appt of member.Appointment) {
       const inv = appt.Invoice;
       const apptRevenue =
         inv && inv.status === "PAID" ? inv.total : appt.totalAmount;
+      totalTips += inv?.tip ?? 0;
 
       const serviceCount = appt.AppointmentService.length;
       if (serviceCount === 0) {
@@ -155,7 +192,12 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
           existing.count++;
           existing.revenue += apptRevenue;
         } else {
-          serviceMap.set(key, { name: "Other", count: 1, revenue: apptRevenue, commissionPct: rate });
+          serviceMap.set(key, {
+            name: "Other",
+            count: 1,
+            revenue: apptRevenue,
+            commissionPct: rate,
+          });
         }
         totalRevenue += apptRevenue;
         continue;
@@ -166,7 +208,9 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
         const sid = as.serviceId;
         const override = overrideMap.get(sid);
         const effectiveRate =
-          override !== undefined && override !== null ? override : member.commissionPct;
+          override !== undefined && override !== null
+            ? override
+            : member.commissionPct;
         const existing = serviceMap.get(sid);
         if (existing) {
           existing.count++;
@@ -195,6 +239,7 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
       .sort((a, b) => b.revenue - a.revenue);
 
     const commissionEarned = services.reduce((s, x) => s + x.commission, 0);
+    const netPay = commissionEarned + totalTips;
     const paidRecord = member.PayrollRecord[0] ?? null;
 
     return {
@@ -204,6 +249,8 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
       appointmentCount: member.Appointment.length,
       revenue: totalRevenue,
       commissionEarned,
+      tips: totalTips,
+      netPay,
       services,
       alreadyPaid: paidRecord !== null,
     };
@@ -211,12 +258,36 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
 
   // Summary totals
   const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
-  const totalPayout = rows.reduce((s, r) => s + r.commissionEarned, 0);
-  const overallCommissionRate =
-    totalRevenue > 0 ? (totalPayout / totalRevenue) * 100 : 0;
+  const totalCommission = rows.reduce((s, r) => s + r.commissionEarned, 0);
+  const totalTips = rows.reduce((s, r) => s + r.tips, 0);
+  const totalPayout = rows.reduce((s, r) => s + r.netPay, 0);
+  const pendingAmount = rows
+    .filter((r) => !r.alreadyPaid)
+    .reduce((s, r) => s + r.netPay, 0);
   const paidCount = rows.filter((r) => r.alreadyPaid).length;
+  const avgCommission =
+    rows.length > 0 ? totalCommission / rows.length : 0;
 
-  const exportUrl = `/api/staff/payroll/export?from=${from}&to=${to}`;
+  const highestEarner = rows.length > 0
+    ? rows.reduce((best, r) => (r.netPay > best.netPay ? r : best), rows[0])
+    : null;
+
+  const unpaidStaffIds = rows
+    .filter((r) => !r.alreadyPaid)
+    .map((r) => r.id);
+
+  // Export data for CSV
+  const exportData = rows.map((r) => ({
+    staffId: r.id,
+    staffName: r.name,
+    commissionPct: r.commissionPct,
+    servicesCount: r.appointmentCount,
+    totalRevenue: r.revenue,
+    commissionEarned: r.commissionEarned,
+    tips: r.tips,
+    netPay: r.netPay,
+    status: r.alreadyPaid ? "PAID" : "PENDING",
+  }));
 
   return (
     <div className="p-4 md:p-8">
@@ -225,21 +296,25 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
         <div>
           <h1 className="text-3xl font-bold text-foreground">Payroll</h1>
           <p className="text-muted-foreground mt-1">
-            Commission summary · {from} &mdash; {to}
+            Commission &amp; pay summary &middot; {from} &mdash; {to}
           </p>
         </div>
 
-        <a
-          href={exportUrl}
-          className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors self-start"
-        >
-          <Download className="w-4 h-4" />
-          Export CSV
-        </a>
+        <div className="flex items-center gap-2 flex-wrap">
+          {unpaidStaffIds.length > 0 && (
+            <BulkMarkPaidButton
+              staffIds={unpaidStaffIds}
+              from={from}
+              to={to}
+            />
+          )}
+          <PayrollExportButton rows={exportData} from={from} to={to} />
+        </div>
       </div>
 
-      {/* Date range controls */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-8">
+      {/* Period selector + navigation */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-8 flex-wrap">
+        {/* Preset tabs */}
         <div className="flex items-center gap-1 bg-secondary/60 rounded-lg p-1">
           {PRESETS.map((preset) => {
             const isActive =
@@ -271,17 +346,36 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
           </Link>
         </div>
 
+        {/* Period navigation */}
+        <div className="flex items-center gap-1">
+          <Link
+            href={`?from=${prevPeriod.from}&to=${prevPeriod.to}`}
+            className="px-3 py-1.5 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors border border-border"
+            title="Previous period"
+          >
+            &lsaquo; Prev
+          </Link>
+          <Link
+            href={`?from=${nextPeriod.from}&to=${nextPeriod.to}`}
+            className="px-3 py-1.5 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors border border-border"
+            title="Next period"
+          >
+            Next &rsaquo;
+          </Link>
+        </div>
+
         <Suspense fallback={null}>
           <PayrollDateControls from={from} to={to} />
         </Suspense>
       </div>
 
-      {/* Summary cards */}
+      {/* Summary stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        {/* Total payroll */}
         <Card className="bg-card border-border">
           <CardContent className="p-5">
             <div className="flex items-start justify-between mb-3">
-              <p className="text-sm text-muted-foreground">Total Payroll Owed</p>
+              <p className="text-sm text-muted-foreground">Total Payroll</p>
               <div className="bg-primary/10 p-2 rounded-lg flex-shrink-0">
                 <DollarSign className="w-4 h-4 text-primary" />
               </div>
@@ -290,58 +384,67 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
               ${totalPayout.toFixed(2)}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Total commissions due this period
+              Commission ${totalCommission.toFixed(2)} + tips ${totalTips.toFixed(2)}
             </p>
           </CardContent>
         </Card>
 
+        {/* Highest earner */}
         <Card className="bg-card border-border">
           <CardContent className="p-5">
             <div className="flex items-start justify-between mb-3">
-              <p className="text-sm text-muted-foreground">Total Revenue</p>
+              <p className="text-sm text-muted-foreground">Highest Earner</p>
               <div className="bg-emerald-500/10 p-2 rounded-lg flex-shrink-0">
                 <TrendingUp className="w-4 h-4 text-emerald-500" />
               </div>
             </div>
-            <p className="text-2xl font-bold text-foreground tabular-nums">
-              ${totalRevenue.toFixed(2)}
+            {highestEarner ? (
+              <>
+                <p className="text-lg font-bold text-foreground truncate">
+                  {highestEarner.name}
+                </p>
+                <p className="text-xs text-emerald-500 font-semibold tabular-nums mt-1">
+                  ${highestEarner.netPay.toFixed(2)}
+                </p>
+              </>
+            ) : (
+              <p className="text-lg text-muted-foreground">—</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Pending (unpaid) */}
+        <Card className="bg-card border-border">
+          <CardContent className="p-5">
+            <div className="flex items-start justify-between mb-3">
+              <p className="text-sm text-muted-foreground">Pending (Unpaid)</p>
+              <div className="bg-amber-500/10 p-2 rounded-lg flex-shrink-0">
+                <Clock className="w-4 h-4 text-amber-500" />
+              </div>
+            </div>
+            <p className="text-2xl font-bold text-amber-500 tabular-nums">
+              ${pendingAmount.toFixed(2)}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              From completed appointments
+              {rows.length - paidCount} of {rows.length} staff unpaid
             </p>
           </CardContent>
         </Card>
 
+        {/* Avg commission */}
         <Card className="bg-card border-border">
           <CardContent className="p-5">
             <div className="flex items-start justify-between mb-3">
-              <p className="text-sm text-muted-foreground">Overall Commission Rate</p>
+              <p className="text-sm text-muted-foreground">Avg Commission</p>
               <div className="bg-[#F48E16]/10 p-2 rounded-lg flex-shrink-0">
                 <BarChart3 className="w-4 h-4 text-[#F48E16]" />
               </div>
             </div>
             <p className="text-2xl font-bold text-foreground tabular-nums">
-              {overallCommissionRate.toFixed(1)}%
+              ${avgCommission.toFixed(2)}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Weighted across all staff
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card border-border">
-          <CardContent className="p-5">
-            <div className="flex items-start justify-between mb-3">
-              <p className="text-sm text-muted-foreground">Periods Paid</p>
-              <div className="bg-emerald-500/10 p-2 rounded-lg flex-shrink-0">
-                <DollarSign className="w-4 h-4 text-emerald-500" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-foreground tabular-nums">
-              {paidCount} / {rows.length}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Staff paid this period
+              Per staff member this period
             </p>
           </CardContent>
         </Card>
@@ -349,23 +452,29 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
 
       {/* Staff payroll table */}
       <div className="rounded-xl border border-border overflow-x-auto">
-        <table className="w-full text-sm min-w-[560px]">
+        <table className="w-full text-sm min-w-[800px]">
           <thead>
             <tr className="bg-muted/40 border-b border-border">
               <th className="text-left px-4 py-3 font-semibold text-muted-foreground">
                 Staff Member
               </th>
               <th className="text-right px-4 py-3 font-semibold text-muted-foreground">
-                Appts
+                Services
               </th>
               <th className="text-right px-4 py-3 font-semibold text-muted-foreground">
                 Revenue
               </th>
               <th className="text-right px-4 py-3 font-semibold text-muted-foreground">
-                Commission %
+                Comm %
               </th>
               <th className="text-right px-4 py-3 font-semibold text-muted-foreground">
-                Commission Earned
+                Commission
+              </th>
+              <th className="text-right px-4 py-3 font-semibold text-muted-foreground">
+                Tips
+              </th>
+              <th className="text-right px-4 py-3 font-semibold text-muted-foreground">
+                Net Pay
               </th>
               <th className="text-right px-4 py-3 font-semibold text-muted-foreground">
                 Status
@@ -375,8 +484,9 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="text-center py-16 text-muted-foreground">
-                  No staff found.
+                <td colSpan={8} className="text-center py-16 text-muted-foreground">
+                  <Users className="w-8 h-8 mx-auto mb-3 opacity-30" />
+                  No staff found for this period.
                 </td>
               </tr>
             ) : (
@@ -392,6 +502,8 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
                   revenue={row.revenue}
                   commissionPct={row.commissionPct}
                   commissionEarned={row.commissionEarned}
+                  tips={row.tips}
+                  netPay={row.netPay}
                   alreadyPaid={row.alreadyPaid}
                   services={row.services}
                 />
@@ -408,10 +520,18 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
                 ${totalRevenue.toFixed(2)}
               </td>
               <td className="px-4 py-3" />
+              <td className="px-4 py-3 text-right font-bold text-foreground tabular-nums">
+                ${totalCommission.toFixed(2)}
+              </td>
+              <td className="px-4 py-3 text-right font-bold text-foreground tabular-nums">
+                ${totalTips.toFixed(2)}
+              </td>
               <td className="px-4 py-3 text-right font-bold text-primary tabular-nums">
                 ${totalPayout.toFixed(2)}
               </td>
-              <td className="px-4 py-3" />
+              <td className="px-4 py-3 text-right text-xs text-muted-foreground">
+                {paidCount}/{rows.length} paid
+              </td>
             </tr>
           </tfoot>
         </table>

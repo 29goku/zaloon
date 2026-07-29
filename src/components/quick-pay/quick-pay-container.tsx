@@ -3,15 +3,16 @@
 import { useState } from "react";
 import { QuickPayForm } from "./quick-pay-form";
 import { RecentPayments } from "./recent-payments";
-import type { RecentInvoice, ServiceOption } from "@/app/dashboard/quick-pay/page";
+import type { RecentInvoice, ServiceOption, RetailProductOption } from "@/app/dashboard/quick-pay/page";
 import type { CreatedInvoice } from "@/app/actions/payments";
 
 interface Props {
   initialInvoices: RecentInvoice[];
   services: ServiceOption[];
+  retailProducts?: RetailProductOption[];
 }
 
-export function QuickPayContainer({ initialInvoices, services }: Props) {
+export function QuickPayContainer({ initialInvoices, services, retailProducts = [] }: Props) {
   const [invoices, setInvoices] = useState<RecentInvoice[]>(initialInvoices);
 
   const handlePaymentCreated = (invoice: CreatedInvoice) => {
@@ -32,7 +33,11 @@ export function QuickPayContainer({ initialInvoices, services }: Props) {
 
   return (
     <div className="space-y-6">
-      <QuickPayForm services={services} onPaymentCreated={handlePaymentCreated} />
+      <QuickPayForm
+        services={services}
+        retailProducts={retailProducts}
+        onPaymentCreated={handlePaymentCreated}
+      />
       <RecentPayments invoices={invoices} />
     </div>
   );

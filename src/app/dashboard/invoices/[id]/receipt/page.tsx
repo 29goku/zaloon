@@ -2,6 +2,8 @@ import { getInvoice } from "@/app/actions/invoices";
 import { getTaxSettings } from "@/app/actions/settings";
 import { notFound } from "next/navigation";
 import { AutoPrint } from "../print/auto-print";
+import { PrintButton } from "../print-button";
+import { getClientTier } from "@/lib/loyalty-tiers";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +30,10 @@ export default async function InvoiceReceiptPage({
       minimumFractionDigits: 2,
     }).format(n);
 
-  const services = invoice.Appointment?.AppointmentService ?? [];
+  const appointmentServices = invoice.Appointment?.AppointmentService ?? [];
+  // Fall back to InvoiceItem if no appointment services
+  const invoiceItems = (invoice as { InvoiceItem?: { id: string; name: string; price: number; qty: number }[] }).InvoiceItem ?? [];
+
   // Use taxSettings if enabled, fall back to salon.taxRate
   const taxRate = taxSettings.enabled ? taxSettings.taxRate : (salon?.taxRate ?? 0);
   const taxName = taxSettings.enabled ? (taxSettings.taxName || "Tax") : "Tax";
@@ -52,6 +57,16 @@ export default async function InvoiceReceiptPage({
   const paymentLabel =
     invoice.paymentMethod.charAt(0).toUpperCase() +
     invoice.paymentMethod.slice(1).toLowerCase();
+
+  // ── Loyalty points earned for this invoice ──────────────────────────────────
+  const clientLoyaltyPoints = (invoice.Client as { loyaltyPoints?: number } | null)?.loyaltyPoints ?? null;
+  let loyaltyPointsEarned: number | null = null;
+  let loyaltyTierName: string | null = null;
+  if (clientLoyaltyPoints !== null && invoice.status === "PAID") {
+    const tier = getClientTier(clientLoyaltyPoints);
+    loyaltyPointsEarned = Math.floor(invoice.total * tier.pointMultiplier);
+    loyaltyTierName = tier.name;
+  }
 
   return (
     <>
@@ -118,12 +133,7 @@ export default async function InvoiceReceiptPage({
           >
             Invoice View
           </a>
-          <button
-            onClick={() => window.print()}
-            className="text-sm px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors font-semibold"
-          >
-            Print Receipt
-          </button>
+          <PrintButton />
         </div>
       </div>
 
@@ -176,6 +186,9 @@ export default async function InvoiceReceiptPage({
             {salon?.phone && (
               <div style={{ fontSize: "11px", color: "#555" }}>{salon.phone}</div>
             )}
+            {salon?.email && (
+              <div style={{ fontSize: "11px", color: "#555" }}>{salon.email}</div>
+            )}
           </div>
 
           <hr className="receipt-sep" />
@@ -204,10 +217,10 @@ export default async function InvoiceReceiptPage({
 
           <hr className="receipt-sep" />
 
-          {/* ── Services ── */}
-          {services.length > 0 ? (
+          {/* ── Services (from appointment or invoice items) ── */}
+          {appointmentServices.length > 0 ? (
             <div>
-              {services.map((s) => (
+              {appointmentServices.map((s) => (
                 <div
                   key={s.serviceId}
                   style={{
@@ -234,6 +247,35 @@ export default async function InvoiceReceiptPage({
                 </div>
               ))}
             </div>
+          ) : invoiceItems.length > 0 ? (
+            <div>
+              {invoiceItems.map((item) => (
+                <div
+                  key={item.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: "12px",
+                    paddingBottom: "4px",
+                  }}
+                >
+                  <span
+                    style={{
+                      flex: 1,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      paddingRight: "8px",
+                    }}
+                  >
+                    {item.qty > 1 ? `${item.qty}x ` : ""}{item.name}
+                  </span>
+                  <span style={{ fontWeight: "600", whiteSpace: "nowrap" }}>
+                    {fmt(item.price * item.qty)}
+                  </span>
+                </div>
+              ))}
+            </div>
           ) : (
             <p style={{ fontSize: "11px", color: "#999", fontStyle: "italic" }}>
               No itemised services
@@ -252,6 +294,14 @@ export default async function InvoiceReceiptPage({
                   <span>Subtotal</span>
                   <span>{fmt(subtotal)}</span>
                 </div>
+                {invoice.discount > 0 && (
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between", color: "#555" }}
+                  >
+                    <span>Discount</span>
+                    <span>-{fmt(invoice.discount)}</span>
+                  </div>
+                )}
                 <div
                   style={{ display: "flex", justifyContent: "space-between", color: "#555" }}
                 >
@@ -259,6 +309,25 @@ export default async function InvoiceReceiptPage({
                   <span>{fmt(taxAmount)}</span>
                 </div>
               </>
+            )}
+
+            {!hasTax && invoice.discount > 0 && (
+              <div
+                style={{ display: "flex", justifyContent: "space-between", color: "#555" }}
+              >
+                <span>Discount</span>
+                <span>-{fmt(invoice.discount)}</span>
+              </div>
+            )}
+
+            {/* Tip */}
+            {invoice.tip > 0 && (
+              <div
+                style={{ display: "flex", justifyContent: "space-between", color: "#16a34a" }}
+              >
+                <span>Tip</span>
+                <span>+{fmt(invoice.tip)}</span>
+              </div>
             )}
 
             {/* TOTAL — large and prominent */}
@@ -324,12 +393,30 @@ export default async function InvoiceReceiptPage({
             </div>
           </div>
 
+          {/* ── Loyalty points ── */}
+          {loyaltyPointsEarned !== null && loyaltyPointsEarned > 0 && (
+            <>
+              <hr className="receipt-sep" />
+              <div style={{ fontSize: "11px", color: "#555", textAlign: "center" }}>
+                <div style={{ fontWeight: "bold", color: "#111", marginBottom: "2px" }}>
+                  🌟 {loyaltyPointsEarned} points earned
+                </div>
+                <div>
+                  Total loyalty points: {clientLoyaltyPoints} pts
+                  {loyaltyTierName && (
+                    <span> ({loyaltyTierName})</span>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
           {/* ── Note ── */}
-          {invoice.note && (
+          {invoice.clientNotes && (
             <>
               <hr className="receipt-sep" />
               <p style={{ fontSize: "11px", color: "#555", margin: 0 }}>
-                {invoice.note}
+                {invoice.clientNotes}
               </p>
             </>
           )}
@@ -339,7 +426,7 @@ export default async function InvoiceReceiptPage({
           {/* ── Footer / thank you ── */}
           <div style={{ textAlign: "center", fontSize: "12px" }}>
             <p style={{ fontWeight: "bold", margin: "0 0 4px" }}>
-              {invoiceFooter ?? "Thank you for visiting!"}
+              {invoiceFooter ?? `Thank you for visiting ${salon?.name ?? "us"}!`}
             </p>
             {salon?.slug && (
               <>

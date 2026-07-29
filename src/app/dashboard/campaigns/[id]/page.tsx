@@ -8,6 +8,7 @@ import {
   CampaignSendButtons,
   CampaignDeleteButton,
 } from "@/components/campaigns/campaign-detail-actions";
+import { ResendToNonOpenersButton } from "@/components/campaigns/resend-to-non-openers-button";
 
 export const dynamic = "force-dynamic";
 
@@ -94,18 +95,36 @@ function PhonePreview({ message, subject, channel }: { message: string; subject:
   );
 }
 
-// ── Analytics stub row (SENT / ACTIVE campaigns) ──────────────────────────────
+// ── Analytics row (SENT / ACTIVE campaigns) ───────────────────────────────────
 
-function AnalyticsRow({ recipientCount }: { recipientCount: number }) {
+interface AnalyticsRowProps {
+  recipientCount: number;
+  openCount: number;
+  clickCount: number;
+}
+
+function AnalyticsRow({ recipientCount, openCount, clickCount }: AnalyticsRowProps) {
   const delivered = recipientCount;
-  const opened = Math.floor(recipientCount * 0.35);
-  const clicked = Math.floor(recipientCount * 0.08);
+  // If openCount/clickCount are 0 (legacy rows), fall back to estimates
+  const opened = openCount > 0 ? openCount : Math.floor(recipientCount * 0.35);
+  const clicked = clickCount > 0 ? clickCount : Math.floor(recipientCount * 0.08);
   const unsubscribed = 0;
+  const hasRealData = openCount > 0 || clickCount > 0;
 
   const stats = [
     { label: "Delivered", value: delivered, color: "text-foreground" },
-    { label: "Opened", value: opened, sub: `${recipientCount > 0 ? Math.round((opened / recipientCount) * 100) : 0}%`, color: "text-primary" },
-    { label: "Clicked", value: clicked, sub: `${recipientCount > 0 ? Math.round((clicked / recipientCount) * 100) : 0}%`, color: "text-blue-600 dark:text-blue-400" },
+    {
+      label: "Opened",
+      value: opened,
+      sub: `${recipientCount > 0 ? Math.round((opened / recipientCount) * 100) : 0}%`,
+      color: "text-primary",
+    },
+    {
+      label: "Clicked",
+      value: clicked,
+      sub: `${recipientCount > 0 ? Math.round((clicked / recipientCount) * 100) : 0}%`,
+      color: "text-blue-600 dark:text-blue-400",
+    },
     { label: "Unsubscribed", value: unsubscribed, color: "text-muted-foreground" },
   ];
 
@@ -116,7 +135,9 @@ function AnalyticsRow({ recipientCount }: { recipientCount: number }) {
           <BarChart2 className="w-4 h-4 text-primary" />
           Analytics
         </h2>
-        <span className="text-xs text-muted-foreground italic">Estimated</span>
+        {!hasRealData && (
+          <span className="text-xs text-muted-foreground italic">Estimated</span>
+        )}
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {stats.map(({ label, value, sub, color }) => (
@@ -253,7 +274,30 @@ export default async function CampaignDetailPage({
 
       {/* Analytics (sent/active) */}
       {(isSent || isPaused) && campaign.recipientCount > 0 && (
-        <AnalyticsRow recipientCount={campaign.recipientCount} />
+        <>
+          <AnalyticsRow
+            recipientCount={campaign.recipientCount}
+            openCount={campaign.openCount}
+            clickCount={campaign.clickCount}
+          />
+          {/* Resend to non-openers */}
+          <div className="rounded-2xl border border-border bg-card p-5 space-y-2">
+            <h2 className="text-base font-semibold text-foreground">Re-engagement</h2>
+            <p className="text-sm text-muted-foreground">
+              Create a follow-up draft campaign targeting clients who did not open this campaign.
+            </p>
+            <ResendToNonOpenersButton
+              originalId={campaign.id}
+              name={campaign.name}
+              message={campaign.message}
+              channel={campaign.channel}
+              subject={campaign.subject}
+              targetFilter={campaign.targetFilter}
+              recipientCount={campaign.recipientCount}
+              openCount={campaign.openCount}
+            />
+          </div>
+        </>
       )}
 
       {/* Message preview */}

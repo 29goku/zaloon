@@ -4,7 +4,8 @@ import * as React from "react";
 import { updateAppointmentStatus } from "@/app/actions/appointments";
 
 const STATUS_CYCLE: Record<string, string> = {
-  SCHEDULED: "COMPLETED",
+  SCHEDULED: "IN_PROGRESS",
+  IN_PROGRESS: "COMPLETED",
   COMPLETED: "CANCELLED",
   CANCELLED: "SCHEDULED",
   NO_SHOW: "SCHEDULED",
@@ -12,16 +13,18 @@ const STATUS_CYCLE: Record<string, string> = {
 
 const STATUS_LABEL: Record<string, string> = {
   SCHEDULED: "Scheduled",
+  IN_PROGRESS: "In Progress",
   COMPLETED: "Completed",
   CANCELLED: "Cancelled",
   NO_SHOW: "No Show",
 };
 
 const STATUS_CLASS: Record<string, string> = {
-  SCHEDULED: "bg-[#F48E16]/20 text-[#F48E16]",
+  SCHEDULED: "bg-blue-500/20 text-blue-400",
+  IN_PROGRESS: "bg-amber-500/20 text-amber-400",
   COMPLETED: "bg-primary/20 text-primary",
-  CANCELLED: "bg-[#F41666]/20 text-[#F41666]",
-  NO_SHOW: "bg-muted text-muted-foreground",
+  CANCELLED: "bg-zinc-500/20 text-zinc-400",
+  NO_SHOW: "bg-rose-500/20 text-rose-400",
 };
 
 interface AppointmentStatusButtonProps {

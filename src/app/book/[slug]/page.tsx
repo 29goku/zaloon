@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
 import { BookingWizard } from "./booking-wizard";
+import { getBlackoutDates } from "@/app/actions/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -73,33 +74,6 @@ export default async function BookingPage({ params, searchParams }: PageProps) {
       country: true,
       phone: true,
       currency: true,
-      ServiceCategory: {
-        select: {
-          id: true,
-          name: true,
-          icon: true,
-          Service: {
-            where: { active: true },
-            select: {
-              id: true,
-              name: true,
-              price: true,
-              durationMins: true,
-              StaffService: {
-                select: {
-                  Staff: {
-                    select: {
-                      id: true,
-                      name: true,
-                      avatar: true,
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
     },
   });
 
@@ -107,21 +81,55 @@ export default async function BookingPage({ params, searchParams }: PageProps) {
     notFound();
   }
 
-  // Flatten into wizard-friendly shape, filtering out empty categories
-  const categories = salon.ServiceCategory.filter((cat) => cat.Service.length > 0).map(
-    (cat) => ({
-      id: cat.id,
-      name: cat.name,
-      icon: cat.icon,
-      services: cat.Service.map((svc) => ({
-        id: svc.id,
-        name: svc.name,
-        price: svc.price,
-        durationMins: svc.durationMins,
-        staff: svc.StaffService.map((ss) => ss.Staff),
-      })),
-    })
-  );
+  // Fetch only online-bookable, active services for this salon
+  const rawServices = await prisma.service.findMany({
+    where: { salonId: salon.id, active: true, onlineBooking: true },
+    select: {
+      id: true,
+      name: true,
+      price: true,
+      durationMins: true,
+      categoryId: true,
+      isAddon: true,
+      onlineBooking: true,
+    },
+    orderBy: { name: "asc" },
+  });
+
+  const onlineServiceIds = rawServices.map((s) => s.id);
+
+  // Fetch categories that have at least one online-bookable service
+  const rawCategories = await prisma.serviceCategory.findMany({
+    where: { salonId: salon.id },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  const serviceCategoryIds = new Set(rawServices.map((s) => s.categoryId));
+  const categories = rawCategories.filter((c) => serviceCategoryIds.has(c.id));
+
+  // Fetch staff who can perform at least one of these services
+  const rawStaff = await prisma.staff.findMany({
+    where: {
+      salonId: salon.id,
+      StaffService: { some: { serviceId: { in: onlineServiceIds } } },
+    },
+    select: {
+      id: true,
+      name: true,
+      avatar: true,
+      StaffService: { select: { serviceId: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  const staff = rawStaff.map((m) => ({
+    id: m.id,
+    name: m.name,
+    avatar: m.avatar,
+    serviceIds: m.StaffService.map((ss) => ss.serviceId),
+  }));
+
+  const blackoutDates = await getBlackoutDates();
 
   const wizardProps = {
     salon: {
@@ -132,7 +140,10 @@ export default async function BookingPage({ params, searchParams }: PageProps) {
       city: salon.city,
       currency: salon.currency,
     },
+    services: rawServices,
     categories,
+    staff,
+    blackoutDates,
   };
 
   // ─── Embed mode: minimal white frame, no branding header ─────────────────
@@ -232,6 +243,17 @@ export default async function BookingPage({ params, searchParams }: PageProps) {
             </svg>
             <span className="text-sm font-medium text-rose-600">Book your appointment online</span>
           </div>
+
+          {/* Gift Cards link */}
+          <a
+            href={`/book/${salon.slug}/gift-card`}
+            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 hover:border-amber-300 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
+            </svg>
+            Gift Cards
+          </a>
         </div>
       </header>
 

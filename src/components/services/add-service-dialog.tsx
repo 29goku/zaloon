@@ -37,6 +37,8 @@ type Category = {
 
 interface AddServiceDialogProps {
   categories: Category[];
+  /** When true the dialog pre-checks the "Add-on service" toggle */
+  defaultAddon?: boolean;
 }
 
 // ── Schema ─────────────────────────────────────────────────────────────────
@@ -68,7 +70,7 @@ type FormValues = z.infer<typeof formSchema>;
 
 // ── Component ──────────────────────────────────────────────────────────────
 
-export function AddServiceDialog({ categories }: AddServiceDialogProps) {
+export function AddServiceDialog({ categories, defaultAddon = false }: AddServiceDialogProps) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [serverError, setServerError] = React.useState<string | null>(null);
@@ -121,6 +123,7 @@ export function AddServiceDialog({ categories }: AddServiceDialogProps) {
         categoryId: resolvedCategoryId,
         price: values.price,
         durationMins: values.durationMins,
+        isAddon: defaultAddon || undefined,
       });
 
       if (!svcResult.success) {

@@ -1,14 +1,12 @@
-import { prisma } from "@/lib/prisma";
+import { getBusinessHours } from "@/app/actions/settings";
 import { Clock, ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { BusinessHoursForm } from "@/components/settings/business-hours-form";
+import { BusinessHoursEnhancedForm } from "@/components/settings/business-hours-enhanced-form";
 
 export const dynamic = "force-dynamic";
 
 export default async function BusinessHoursPage() {
-  const salon = await prisma.salon.findFirst({
-    select: { businessHours: true },
-  });
+  const businessHours = await getBusinessHours();
 
   return (
     <div className="p-8 max-w-2xl">
@@ -25,11 +23,11 @@ export default async function BusinessHoursPage() {
           Business Hours
         </h1>
         <p className="text-muted-foreground mt-1">
-          Set your weekly schedule — clients will only see available slots during open hours
+          Set your weekly schedule and add special dates like holidays or modified hours
         </p>
       </div>
 
-      <BusinessHoursForm businessHours={salon?.businessHours ?? null} />
+      <BusinessHoursEnhancedForm initial={businessHours} />
     </div>
   );
 }

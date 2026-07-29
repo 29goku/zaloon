@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { CategoryAccordion, AccordionCategory } from "./category-accordion";
+import { reorderCategories } from "@/app/actions/services";
 
 interface ServicesPageClientProps {
   categories: AccordionCategory[];
@@ -14,7 +15,7 @@ export function ServicesPageClient({
   allCategories,
   fmt,
 }: ServicesPageClientProps) {
-  // Local order state for Up/Down reordering (visual only — no persistence)
+  // Local order state for Up/Down reordering (persisted via reorderCategories)
   const [order, setOrder] = React.useState<string[]>(
     () => initialCategories.map((c) => c.id)
   );
@@ -34,22 +35,20 @@ export function ServicesPageClient({
     .map((id) => initialCategories.find((c) => c.id === id))
     .filter(Boolean) as AccordionCategory[];
 
-  function moveUp(index: number) {
+  async function moveUp(index: number) {
     if (index === 0) return;
-    setOrder((prev) => {
-      const next = [...prev];
-      [next[index - 1], next[index]] = [next[index], next[index - 1]];
-      return next;
-    });
+    const next = [...order];
+    [next[index - 1], next[index]] = [next[index], next[index - 1]];
+    setOrder(next);
+    await reorderCategories(next);
   }
 
-  function moveDown(index: number) {
+  async function moveDown(index: number) {
     if (index === sorted.length - 1) return;
-    setOrder((prev) => {
-      const next = [...prev];
-      [next[index], next[index + 1]] = [next[index + 1], next[index]];
-      return next;
-    });
+    const next = [...order];
+    [next[index], next[index + 1]] = [next[index + 1], next[index]];
+    setOrder(next);
+    await reorderCategories(next);
   }
 
   return (

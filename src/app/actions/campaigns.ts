@@ -38,8 +38,16 @@ async function getSalon() {
 }
 
 type TargetFilterShape = {
-  filter: "all" | "inactive" | "birthday" | "vip";
+  filter: "all" | "inactive" | "birthday" | "vip" | "segment" | "custom";
   daysInactive?: number;
+  segmentId?: string;
+  // Custom filter fields
+  minVisits?: number;
+  minSpend?: number;
+  lastVisitBefore?: string; // ISO date
+  lastVisitAfter?: string;  // ISO date
+  tagsContain?: string;
+  clientIds?: string[];
 };
 
 function parseTargetFilter(raw: string | null | undefined): TargetFilterShape {
@@ -123,6 +131,61 @@ export async function getTargetAudience(filterJson: string): Promise<{
         select: { id: true, name: true, phone: true, email: true },
         orderBy: { loyaltyPoints: "desc" },
       });
+    } else if (filter.filter === "segment" && filter.segmentId) {
+      const { getSegmentClientIds } = await import("@/lib/segments");
+      const ids = await getSegmentClientIds(prisma, filter.segmentId);
+      count = ids.length;
+      const previewIds = ids.slice(0, 5);
+      clients = await prisma.client.findMany({
+        where: { id: { in: previewIds } },
+        select: { id: true, name: true, phone: true, email: true },
+      });
+    } else if (filter.filter === "custom") {
+      // Custom filter: visits, spend, date range, tags, explicit clientIds
+      if (filter.clientIds && filter.clientIds.length > 0) {
+        count = filter.clientIds.length;
+        clients = await prisma.client.findMany({
+          where: { id: { in: filter.clientIds.slice(0, 5) } },
+          select: { id: true, name: true, phone: true, email: true },
+        });
+      } else {
+        // Build dynamic where
+        const where: Record<string, unknown> = { salonId: salon.id };
+        if (filter.lastVisitBefore || filter.lastVisitAfter) {
+          const dateFilter: Record<string, string> = {};
+          if (filter.lastVisitBefore) dateFilter.lte = filter.lastVisitBefore;
+          if (filter.lastVisitAfter) dateFilter.gte = filter.lastVisitAfter;
+          where.Appointment = { some: { date: dateFilter } };
+        }
+        if (filter.tagsContain) {
+          where.tags = { contains: filter.tagsContain };
+        }
+        const allClients = await prisma.client.findMany({
+          where,
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+            Appointment: { select: { totalAmount: true, date: true } },
+          },
+        });
+        const filtered = allClients.filter((c) => {
+          if (filter.minVisits !== undefined && c.Appointment.length < filter.minVisits) return false;
+          if (filter.minSpend !== undefined) {
+            const spent = c.Appointment.reduce((s, a) => s + a.totalAmount, 0);
+            if (spent < filter.minSpend) return false;
+          }
+          return true;
+        });
+        count = filtered.length;
+        clients = filtered.slice(0, 5).map((c) => ({
+          id: c.id,
+          name: c.name,
+          phone: c.phone ?? null,
+          email: c.email ?? null,
+        }));
+      }
     } else {
       count = await prisma.client.count({ where: { salonId: salon.id } });
       clients = await prisma.client.findMany({
@@ -330,6 +393,93 @@ export async function launchCampaign(
   } catch (err) {
     console.error("[launchCampaign]", err);
     return { success: false, error: "Failed to launch campaign" };
+  }
+}
+
+// ── updateCampaignStatus ───────────────────────────────────────────────────────
+
+export async function updateCampaignStatus(
+  id: string,
+  status: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  if (!id) return { success: false, error: "id is required" };
+  const allowed = CAMPAIGN_STATUSES;
+  if (!allowed.includes(status as (typeof allowed)[number])) {
+    return { success: false, error: `Invalid status: ${status}` };
+  }
+  try {
+    const existing = await prisma.campaign.findUnique({ where: { id } });
+    if (!existing) return { success: false, error: "Campaign not found" };
+    await prisma.campaign.update({ where: { id }, data: { status } });
+    return { success: true };
+  } catch (err) {
+    console.error("[updateCampaignStatus]", err);
+    return { success: false, error: "Failed to update status" };
+  }
+}
+
+// ── getCampaignRecipientCount ──────────────────────────────────────────────────
+
+export async function getCampaignRecipientCount(filter: string): Promise<number> {
+  try {
+    const result = await getTargetAudience(filter);
+    return result.count;
+  } catch {
+    return 0;
+  }
+}
+
+// ── createCampaignAndSend ──────────────────────────────────────────────────────
+// Creates a campaign and immediately marks it as ACTIVE (sent). Used for quick
+// "Send to selected clients" flows from the clients grid.
+
+export async function createCampaignAndSend(data: {
+  name: string;
+  type: string;
+  message: string;
+  channel: string;
+  subject?: string | null;
+  targetFilter?: string | null;
+  recipientCount: number;
+}): Promise<{ success: true; id: string } | { success: false; error: string }> {
+  const parsed = createCampaignSchema.safeParse({
+    ...data,
+    scheduledAt: null,
+  });
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  try {
+    const salon = await getSalon();
+    if (!salon) return { success: false, error: "No salon found" };
+
+    const openCount = Math.round(data.recipientCount * 0.35);
+    const clickCount = Math.round(data.recipientCount * 0.1);
+
+    const campaign = await prisma.campaign.create({
+      data: {
+        id: randomUUID(),
+        salonId: salon.id,
+        name: parsed.data.name,
+        type: parsed.data.type,
+        message: parsed.data.message,
+        channel: parsed.data.channel,
+        subject: parsed.data.subject ?? null,
+        targetFilter: parsed.data.targetFilter ?? null,
+        status: "ACTIVE",
+        sentAt: new Date(),
+        scheduledAt: new Date(),
+        recipientCount: data.recipientCount,
+        openCount,
+        clickCount,
+      },
+    });
+
+    return { success: true, id: campaign.id };
+  } catch (err) {
+    console.error("[createCampaignAndSend]", err);
+    return { success: false, error: "Failed to create and send campaign" };
   }
 }
 

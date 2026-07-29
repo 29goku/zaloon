@@ -215,3 +215,72 @@ export async function getRecurringExpenses() {
     return [];
   }
 }
+
+// ── bulkCreateExpenses ─────────────────────────────────────────────────────────
+
+export async function bulkCreateExpenses(
+  expenses: {
+    category: string;
+    description: string;
+    amount: number;
+    date: string;
+    vendor?: string;
+    paymentMethod?: string;
+  }[]
+): Promise<{ success: boolean; created: number; error?: string }> {
+  if (!expenses || expenses.length === 0) {
+    return { success: true, created: 0 };
+  }
+
+  const rowSchema = z.object({
+    category: z.enum(EXPENSE_CATEGORIES),
+    description: z.string().min(1, "Description is required"),
+    amount: z.number().positive("Amount must be greater than 0"),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
+    vendor: z.string().optional(),
+    paymentMethod: z.enum(PAYMENT_METHODS).default("CASH"),
+  });
+
+  // Validate all rows first
+  for (let i = 0; i < expenses.length; i++) {
+    const parsed = rowSchema.safeParse(expenses[i]);
+    if (!parsed.success) {
+      return {
+        success: false,
+        created: 0,
+        error: `Row ${i + 1}: ${parsed.error.issues[0]?.message ?? "Invalid input"}`,
+      };
+    }
+  }
+
+  try {
+    const salon = await prisma.salon.findFirst();
+    if (!salon) return { success: false, created: 0, error: "No salon found" };
+
+    // Use a transaction to create all at once
+    const validated = expenses.map((e) => rowSchema.parse(e));
+
+    await prisma.$transaction(
+      validated.map((e) =>
+        prisma.expense.create({
+          data: {
+            id: randomUUID(),
+            salonId: salon.id,
+            category: e.category,
+            description: e.description,
+            amount: e.amount,
+            date: e.date,
+            vendor: e.vendor ?? null,
+            paymentMethod: e.paymentMethod,
+            isRecurring: false,
+          },
+        })
+      )
+    );
+
+    return { success: true, created: validated.length };
+  } catch (err) {
+    console.error("[bulkCreateExpenses]", err);
+    return { success: false, created: 0, error: "Failed to create expenses" };
+  }
+}

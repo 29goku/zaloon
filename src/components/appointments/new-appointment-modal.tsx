@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, ChevronLeft, ChevronRight, Check, Loader2, User2, Scissors, CalendarDays, ClipboardCheck, Trash2, UserCheck } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Check, Loader2, User2, Scissors, CalendarDays, ClipboardCheck, Trash2, UserCheck, Clock, Umbrella, AlertCircle } from "lucide-react";
 
 import {
   Dialog,
@@ -18,8 +18,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
-import { createAppointment } from "@/app/actions/appointments";
+import { createAppointment, createRecurringAppointments } from "@/app/actions/appointments";
 import { searchClients } from "@/app/actions/search";
+import { getStaffAvailabilityForDate } from "@/app/actions/shifts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -73,6 +74,7 @@ interface NewAppointmentModalProps {
   staff: StaffMember[];
   services?: Service[];
   categories?: Category[];
+  salonId?: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -130,6 +132,7 @@ export function NewAppointmentModal({
   staff,
   services: servicesProp,
   categories: categoriesProp,
+  salonId: salonIdProp,
 }: NewAppointmentModalProps) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -142,6 +145,17 @@ export function NewAppointmentModal({
   const [clientSearching, setClientSearching] = React.useState(false);
   const [selectedClient, setSelectedClient] = React.useState<Client | "walk-in" | null>(null);
 
+  // Staff availability state for selected staff + date
+  const [staffAvailability, setStaffAvailability] = React.useState<{
+    hasShift: boolean;
+    shiftStart: string | null;
+    shiftEnd: string | null;
+    onLeave: boolean;
+    leaveReason: string | null;
+    appointmentCount: number;
+  } | null>(null);
+  const [availabilityLoading, setAvailabilityLoading] = React.useState(false);
+
   // Services state — fetched from API if not passed as prop
   const [categories, setCategories] = React.useState<Category[]>(categoriesProp ?? []);
   const [services, setServices] = React.useState<Service[]>(servicesProp ?? []);
@@ -152,6 +166,11 @@ export function NewAppointmentModal({
     { serviceId: "", staffId: "" },
   ]);
   const [rowsError, setRowsError] = React.useState<string | null>(null);
+
+  // Recurring state
+  const [recurringEnabled, setRecurringEnabled] = React.useState(false);
+  const [recurringPattern, setRecurringPattern] = React.useState<"weekly" | "biweekly" | "monthly">("weekly");
+  const [recurringOccurrences, setRecurringOccurrences] = React.useState(4);
 
   const today = new Date().toISOString().split("T")[0];
 
@@ -226,6 +245,30 @@ export function NewAppointmentModal({
 
   // The primary staffId is the first row's staffId (falls back to any picked staff)
   const primaryStaffId = serviceRows.find((r) => r.staffId)?.staffId ?? "";
+
+  // ── Fetch staff availability when staff + date changes ───────────────────
+
+  React.useEffect(() => {
+    if (!primaryStaffId || !watchedDate) {
+      setStaffAvailability(null);
+      return;
+    }
+    let cancelled = false;
+    setAvailabilityLoading(true);
+    getStaffAvailabilityForDate(primaryStaffId, watchedDate)
+      .then((data) => {
+        if (!cancelled) setStaffAvailability(data);
+      })
+      .catch(() => {
+        if (!cancelled) setStaffAvailability(null);
+      })
+      .finally(() => {
+        if (!cancelled) setAvailabilityLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [primaryStaffId, watchedDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedServiceObjects = serviceRows
     .map((r) => services.find((s) => s.id === r.serviceId))
@@ -315,13 +358,51 @@ export function NewAppointmentModal({
       serviceStaffMap[r.serviceId] = r.staffId;
     });
     const staffId = filledRows[0].staffId;
+    const clientId =
+      selectedClient === "walk-in" || selectedClient === null
+        ? null
+        : (selectedClient as Client).id;
 
+    // ── Recurring path ──────────────────────────────────────────────────────
+    if (recurringEnabled) {
+      const salonId: string = salonIdProp ?? "";
+      if (!salonId) {
+        setServerError("Could not determine salon. Please try again.");
+        return;
+      }
+
+      const result = await createRecurringAppointments({
+        salonId,
+        clientId: clientId ?? undefined,
+        staffId,
+        serviceIds: filledRows.map((r) => r.serviceId),
+        startDate: values.date,
+        startTime: values.startTime,
+        totalAmount: totalPrice,
+        pattern: recurringPattern,
+        occurrences: recurringOccurrences,
+      });
+
+      if (!result.success) {
+        setServerError("Failed to create recurring appointments.");
+        return;
+      }
+
+      toast.add({
+        title: "Recurring series booked",
+        description: `${result.created} appointments created.`,
+        type: "success",
+      });
+
+      handleClose(false);
+      router.refresh();
+      return;
+    }
+
+    // ── Single appointment path ─────────────────────────────────────────────
     const result = await createAppointment({
       ...values,
-      clientId:
-        selectedClient === "walk-in" || selectedClient === null
-          ? null
-          : selectedClient.id,
+      clientId,
       staffId,
       serviceIds: filledRows.map((r) => r.serviceId),
       serviceStaffMap,
@@ -355,6 +436,18 @@ export function NewAppointmentModal({
       type: "success",
     });
 
+    // Show reminders scheduled toast
+    if ("remindersScheduled" in result && typeof result.remindersScheduled === "number" && result.remindersScheduled > 0) {
+      const count = result.remindersScheduled;
+      toast.add({
+        title: "Reminders scheduled",
+        description: count === 1
+          ? "1 SMS reminder scheduled for this appointment."
+          : `${count} SMS reminders scheduled (24h and 2h before appointment).`,
+        type: "info",
+      });
+    }
+
     handleClose(false);
     router.refresh();
   }
@@ -371,6 +464,10 @@ export function NewAppointmentModal({
       setSelectedClient(null);
       setServiceRows([{ serviceId: "", staffId: "" }]);
       setRowsError(null);
+      setStaffAvailability(null);
+      setRecurringEnabled(false);
+      setRecurringPattern("weekly");
+      setRecurringOccurrences(4);
     }
     setOpen(next);
   }
@@ -674,6 +771,81 @@ export function NewAppointmentModal({
               {...register("notes")}
             />
           </div>
+
+          {/* ── Recurring section ──────────────────────────────────── */}
+          <RecurringSection
+            date={watchedDate}
+            enabled={recurringEnabled}
+            onToggle={() => setRecurringEnabled((v) => !v)}
+            pattern={recurringPattern}
+            onPatternChange={setRecurringPattern}
+            occurrences={recurringOccurrences}
+            onOccurrencesChange={setRecurringOccurrences}
+          />
+
+          {/* ── Staff availability widget ───────────────────────────── */}
+          {primaryStaffId && watchedDate && (
+            <div className="rounded-xl border border-border bg-secondary/20 px-3.5 py-3 space-y-1.5">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Staff Availability
+              </p>
+              {availabilityLoading ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Checking availability…
+                </div>
+              ) : staffAvailability ? (
+                <div className="space-y-1.5">
+                  {/* Shift hours */}
+                  {staffAvailability.onLeave ? (
+                    <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
+                      <Umbrella className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>
+                        On leave
+                        {staffAvailability.leaveReason
+                          ? ` — ${staffAvailability.leaveReason}`
+                          : " (day off approved)"}
+                      </span>
+                    </div>
+                  ) : staffAvailability.hasShift ? (
+                    <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400">
+                      <Clock className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>
+                        Available:{" "}
+                        {(() => {
+                          function fmt12(t: string) {
+                            const [h, m] = t.split(":").map(Number);
+                            const suffix = h >= 12 ? "pm" : "am";
+                            const h12 = h % 12 || 12;
+                            return m === 0
+                              ? `${h12}${suffix}`
+                              : `${h12}:${String(m).padStart(2, "0")}${suffix}`;
+                          }
+                          return `${fmt12(staffAvailability.shiftStart!)} – ${fmt12(staffAvailability.shiftEnd!)}`;
+                        })()}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
+                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>No shift scheduled for this day</span>
+                    </div>
+                  )}
+
+                  {/* Appointment count */}
+                  {staffAvailability.appointmentCount > 0 && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <CalendarDays className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>
+                        {staffAvailability.appointmentCount} appointment
+                        {staffAvailability.appointmentCount !== 1 ? "s" : ""} already booked
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
       );
     }
@@ -736,6 +908,20 @@ export function NewAppointmentModal({
                 : "—"}{" "}
               at {watchedStartTime || "—"}
             </SummaryRow>
+
+            {/* Recurring */}
+            {recurringEnabled && (
+              <SummaryRow label="Recurring">
+                <span className="text-violet-400 font-medium">
+                  {recurringPattern === "weekly"
+                    ? "Weekly"
+                    : recurringPattern === "biweekly"
+                    ? "Every 2 weeks"
+                    : "Monthly"}{" "}
+                  &times; {recurringOccurrences}
+                </span>
+              </SummaryRow>
+            )}
           </div>
 
           {serverError && (
@@ -822,6 +1008,163 @@ function SummaryRow({
     <div className="flex items-start justify-between gap-4 px-4 py-3">
       <span className="text-sm text-muted-foreground shrink-0">{label}</span>
       <span className="text-sm font-medium text-right">{children}</span>
+    </div>
+  );
+}
+
+// ─── Recurring section sub-component ─────────────────────────────────────────
+
+const PATTERN_LABELS: Record<string, string> = {
+  weekly: "Weekly",
+  biweekly: "Every 2 weeks",
+  monthly: "Monthly",
+};
+
+function addRecurringDays(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, m - 1, d + days);
+  return date.toISOString().split("T")[0];
+}
+
+function addRecurringMonths(dateStr: string, months: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, m - 1 + months, d);
+  if (date.getMonth() !== ((m - 1 + months) % 12 + 12) % 12) {
+    date.setDate(0);
+  }
+  return date.toISOString().split("T")[0];
+}
+
+function previewDates(
+  startDate: string,
+  pattern: "weekly" | "biweekly" | "monthly",
+  occurrences: number
+): string[] {
+  const dates: string[] = [];
+  for (let i = 0; i < occurrences; i++) {
+    if (pattern === "weekly") dates.push(addRecurringDays(startDate, i * 7));
+    else if (pattern === "biweekly") dates.push(addRecurringDays(startDate, i * 14));
+    else dates.push(addRecurringMonths(startDate, i));
+  }
+  return dates;
+}
+
+function fmtShort(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+interface RecurringSectionProps {
+  date: string;
+  enabled: boolean;
+  onToggle: () => void;
+  pattern: "weekly" | "biweekly" | "monthly";
+  onPatternChange: (p: "weekly" | "biweekly" | "monthly") => void;
+  occurrences: number;
+  onOccurrencesChange: (n: number) => void;
+}
+
+function RecurringSection({
+  date,
+  enabled,
+  onToggle,
+  pattern,
+  onPatternChange,
+  occurrences,
+  onOccurrencesChange,
+}: RecurringSectionProps) {
+  const preview = date ? previewDates(date, pattern, occurrences) : [];
+
+  return (
+    <div className="rounded-xl border border-border bg-violet-500/5 px-3.5 py-3 space-y-3">
+      {/* Toggle header */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+          <svg
+            className="w-3.5 h-3.5 text-violet-400"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+            <path d="M3 3v5h5" />
+          </svg>
+          Recurring
+        </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          onClick={onToggle}
+          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors ${
+            enabled ? "bg-violet-500" : "bg-muted-foreground/30"
+          }`}
+        >
+          <span
+            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg transition-transform ${
+              enabled ? "translate-x-4" : "translate-x-0"
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* Options (only when enabled) */}
+      {enabled && (
+        <div className="space-y-3">
+          {/* Pattern */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Pattern</Label>
+              <select
+                value={pattern}
+                onChange={(e) =>
+                  onPatternChange(e.target.value as "weekly" | "biweekly" | "monthly")
+                }
+                className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="weekly">Weekly</option>
+                <option value="biweekly">Every 2 weeks</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Repeat for</Label>
+              <select
+                value={occurrences}
+                onChange={(e) => onOccurrencesChange(Number(e.target.value))}
+                className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                {[2, 3, 4, 6, 8, 10, 12].map((n) => (
+                  <option key={n} value={n}>
+                    {n} times
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Preview */}
+          {preview.length > 0 && (
+            <div className="text-xs text-muted-foreground bg-muted/40 rounded-md px-3 py-2">
+              <span className="font-medium text-foreground">
+                Creates {preview.length} appointments:{" "}
+              </span>
+              {preview.map((d, i) => (
+                <span key={d}>
+                  {fmtShort(d)}
+                  {i < preview.length - 1 ? ", " : ""}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

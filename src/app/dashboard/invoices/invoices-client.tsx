@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -14,21 +14,38 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
+  ChevronUp,
+  ChevronsUpDown,
+  FileDown,
 } from "lucide-react";
 import { voidInvoices, markInvoicePaid } from "@/app/actions/invoices";
+import { InvoiceDetailModal } from "@/components/invoices/invoice-detail-modal";
 
 // ─── types ────────────────────────────────────────────────────────────────────
+
+export interface PartialPaymentSummary {
+  id: string;
+  amount: number;
+  method: string;
+  note: string | null;
+  createdAt: string;
+}
 
 export interface InvoiceSummary {
   id: string;
   status: string;
   total: number;
   tip: number;
+  discount: number;
   paymentMethod: string;
   createdAt: string; // ISO string
   isRecurring: boolean;
   clientName: string | null;
   invoiceNum: string;
+  servicesSummary: string;
+  partialPayments: PartialPaymentSummary[];
+  appointmentId: string | null;
+  paidAt: string | null;
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -37,7 +54,11 @@ const STATUS_STYLES: Record<string, string> = {
   PAID: "bg-primary/20 text-primary",
   VOID: "bg-[#F41666]/20 text-[#F41666]",
   PENDING: "bg-[#F48E16]/20 text-[#F48E16]",
+  PARTIAL: "bg-blue-500/20 text-blue-400",
 };
+
+type SortKey = "invoiceNum" | "createdAt" | "clientName" | "total" | "status" | "paymentMethod";
+type SortDir = "asc" | "desc";
 
 function agingBucket(createdAt: string): "current" | "7-14" | "15-30" | "30+" {
   const diffDays = (Date.now() - new Date(createdAt).getTime()) / 86_400_000;
@@ -60,6 +81,32 @@ const BUCKET_COLOR: Record<string, string> = {
   "15-30": "text-orange-400 border-orange-400/40",
   "30+": "text-[#F41666] border-[#F41666]/40",
 };
+
+// ─── CSV Export ───────────────────────────────────────────────────────────────
+
+function exportToCSV(rows: InvoiceSummary[], filename: string) {
+  const header = ["Invoice #", "Date", "Client", "Services", "Method", "Amount", "Tip", "Discount", "Status"];
+  const csvRows = rows.map((r) => [
+    r.invoiceNum,
+    new Date(r.createdAt).toLocaleDateString("en"),
+    r.clientName ?? "Walk-in",
+    `"${r.servicesSummary.replace(/"/g, '""')}"`,
+    r.paymentMethod,
+    r.total.toFixed(2),
+    r.tip.toFixed(2),
+    r.discount.toFixed(2),
+    r.status,
+  ]);
+
+  const csv = [header.join(","), ...csvRows.map((row) => row.join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 // ─── Revenue chart ────────────────────────────────────────────────────────────
 
@@ -132,7 +179,7 @@ function AgingReport({
   fmt: (n: number) => string;
   onMarkPaid: (id: string) => void;
 }) {
-  const unpaid = invoices.filter((i) => i.status === "PENDING");
+  const unpaid = invoices.filter((i) => i.status === "PENDING" || i.status === "PARTIAL");
   const grouped: Record<string, InvoiceSummary[]> = {
     current: [],
     "7-14": [],
@@ -234,19 +281,57 @@ function AgingReport({
   );
 }
 
+// ─── Sort icon ────────────────────────────────────────────────────────────────
+
+function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {
+  if (col !== sortKey) return <ChevronsUpDown className="w-3 h-3 ml-0.5 text-muted-foreground/50" />;
+  return sortDir === "asc" ? (
+    <ChevronUp className="w-3 h-3 ml-0.5 text-primary" />
+  ) : (
+    <ChevronDown className="w-3 h-3 ml-0.5 text-primary" />
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 interface Props {
   invoices: InvoiceSummary[];
+  allInvoices: InvoiceSummary[];
   fmt: (n: number) => string;
+  currency: string;
 }
 
-export function InvoicesClient({ invoices, fmt }: Props) {
+export function InvoicesClient({ invoices, allInvoices, fmt, currency }: Props) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"all" | "aging" | "chart">("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [, startTransition] = useTransition();
   const [voidingBatch, setVoidingBatch] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("createdAt");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceSummary | null>(null);
+
+  function handleSort(col: SortKey) {
+    if (sortKey === col) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(col);
+      setSortDir("asc");
+    }
+  }
+
+  const sortedInvoices = useMemo(() => {
+    return [...invoices].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === "invoiceNum") cmp = a.invoiceNum.localeCompare(b.invoiceNum);
+      else if (sortKey === "createdAt") cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      else if (sortKey === "clientName") cmp = (a.clientName ?? "").localeCompare(b.clientName ?? "");
+      else if (sortKey === "total") cmp = a.total - b.total;
+      else if (sortKey === "status") cmp = a.status.localeCompare(b.status);
+      else if (sortKey === "paymentMethod") cmp = a.paymentMethod.localeCompare(b.paymentMethod);
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [invoices, sortKey, sortDir]);
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -292,30 +377,27 @@ export function InvoicesClient({ invoices, fmt }: Props) {
     });
   }
 
+  function handleExportFiltered() {
+    const now = new Date();
+    exportToCSV(invoices, `invoices-filtered-${now.toISOString().slice(0, 10)}.csv`);
+  }
+
+  function handleExportMonthly() {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    const monthlyRows = allInvoices.filter((inv) => {
+      const d = new Date(inv.createdAt);
+      return d >= monthStart && d <= monthEnd;
+    });
+    const label = now.toLocaleDateString("en", { month: "long", year: "numeric" }).replace(" ", "-");
+    exportToCSV(monthlyRows, `invoices-${label}.csv`);
+  }
+
   function handleExportSelected() {
     const ids = Array.from(selected);
     const rows = invoices.filter((i) => ids.includes(i.id));
-    const csv = [
-      ["Invoice #", "Date", "Client", "Method", "Amount", "Status"].join(","),
-      ...rows.map((r) =>
-        [
-          r.invoiceNum,
-          new Date(r.createdAt).toLocaleDateString("en"),
-          r.clientName ?? "Walk-in",
-          r.paymentMethod,
-          r.total.toFixed(2),
-          r.status,
-        ].join(",")
-      ),
-    ].join("\n");
-
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `invoices-export-${Date.now()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    exportToCSV(rows, `invoices-selected-${Date.now()}.csv`);
   }
 
   const tabs = [
@@ -324,8 +406,31 @@ export function InvoicesClient({ invoices, fmt }: Props) {
     { id: "chart" as const, label: "Revenue Chart" },
   ];
 
+  const thClass =
+    "pb-3 pr-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground select-none cursor-pointer hover:text-foreground transition-colors whitespace-nowrap";
+
   return (
     <div className="space-y-4">
+      {/* Export buttons */}
+      <div className="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={handleExportFiltered}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
+        >
+          <FileDown className="w-3.5 h-3.5" />
+          Export filtered
+        </button>
+        <button
+          type="button"
+          onClick={handleExportMonthly}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
+        >
+          <BarChart2 className="w-3.5 h-3.5" />
+          Monthly report
+        </button>
+      </div>
+
       {/* Tab bar */}
       <div className="flex items-center gap-1 border-b border-border">
         {tabs.map((tab) => (
@@ -414,23 +519,38 @@ export function InvoicesClient({ invoices, fmt }: Props) {
                       onChange={toggleAll}
                     />
                   </th>
-                  <th className="pb-3 pr-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Invoice #
+                  <th className={thClass} onClick={() => handleSort("invoiceNum")}>
+                    <span className="inline-flex items-center">
+                      Invoice # <SortIcon col="invoiceNum" sortKey={sortKey} sortDir={sortDir} />
+                    </span>
+                  </th>
+                  <th className={thClass} onClick={() => handleSort("createdAt")}>
+                    <span className="inline-flex items-center">
+                      Date <SortIcon col="createdAt" sortKey={sortKey} sortDir={sortDir} />
+                    </span>
+                  </th>
+                  <th className={thClass} onClick={() => handleSort("clientName")}>
+                    <span className="inline-flex items-center">
+                      Client <SortIcon col="clientName" sortKey={sortKey} sortDir={sortDir} />
+                    </span>
                   </th>
                   <th className="pb-3 pr-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Date
+                    Services
                   </th>
-                  <th className="pb-3 pr-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Client
+                  <th className={thClass} onClick={() => handleSort("paymentMethod")}>
+                    <span className="inline-flex items-center">
+                      Method <SortIcon col="paymentMethod" sortKey={sortKey} sortDir={sortDir} />
+                    </span>
                   </th>
-                  <th className="pb-3 pr-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Method
+                  <th className={`${thClass} text-right`} onClick={() => handleSort("total")}>
+                    <span className="inline-flex items-center justify-end">
+                      Amount <SortIcon col="total" sortKey={sortKey} sortDir={sortDir} />
+                    </span>
                   </th>
-                  <th className="pb-3 pr-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground text-right">
-                    Amount
-                  </th>
-                  <th className="pb-3 pr-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Status
+                  <th className={thClass} onClick={() => handleSort("status")}>
+                    <span className="inline-flex items-center">
+                      Status <SortIcon col="status" sortKey={sortKey} sortDir={sortDir} />
+                    </span>
                   </th>
                   <th className="pb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground text-right">
                     Actions
@@ -438,19 +558,20 @@ export function InvoicesClient({ invoices, fmt }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {invoices.map((inv) => {
+                {sortedInvoices.map((inv) => {
                   const statusClass =
                     STATUS_STYLES[inv.status] ?? "bg-secondary text-muted-foreground";
 
                   return (
                     <tr
                       key={inv.id}
-                      className={`border-b border-border/50 hover:bg-secondary/40 transition-colors ${
+                      onClick={() => setSelectedInvoice(inv)}
+                      className={`border-b border-border/50 hover:bg-secondary/40 transition-colors cursor-pointer ${
                         selected.has(inv.id) ? "bg-primary/5" : ""
                       }`}
                     >
                       {/* Checkbox */}
-                      <td className="py-3 pr-3">
+                      <td className="py-3 pr-3" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           className="rounded border-border"
@@ -462,19 +583,16 @@ export function InvoicesClient({ invoices, fmt }: Props) {
                       {/* Invoice # */}
                       <td className="py-3 pr-4">
                         <div className="flex items-center gap-1.5">
-                          <Link
-                            href={`/dashboard/invoices/${inv.id}`}
-                            className="font-mono text-primary hover:underline font-semibold"
-                          >
+                          <span className="font-mono text-primary font-semibold">
                             {inv.invoiceNum}
-                          </Link>
+                          </span>
                           {inv.isRecurring && (
                             <span
                               title="Recurring invoice"
                               className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-primary/10 text-primary"
                             >
                               <Repeat className="w-2.5 h-2.5" />
-                              Recurring
+                              Rec
                             </span>
                           )}
                         </div>
@@ -493,6 +611,13 @@ export function InvoicesClient({ invoices, fmt }: Props) {
                       <td className="py-3 pr-4 text-foreground font-medium">
                         {inv.clientName ?? (
                           <span className="text-muted-foreground italic">Walk-in</span>
+                        )}
+                      </td>
+
+                      {/* Services summary */}
+                      <td className="py-3 pr-4 text-muted-foreground max-w-[180px] truncate text-xs">
+                        {inv.servicesSummary || (
+                          <span className="italic">—</span>
                         )}
                       </td>
 
@@ -526,7 +651,7 @@ export function InvoicesClient({ invoices, fmt }: Props) {
                       </td>
 
                       {/* Actions */}
-                      <td className="py-3">
+                      <td className="py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1 justify-end">
                           <Link
                             href={`/dashboard/invoices/${inv.id}`}
@@ -537,20 +662,10 @@ export function InvoicesClient({ invoices, fmt }: Props) {
                             View
                           </Link>
                           <Link
-                            href={`/dashboard/invoices/${inv.id}/print`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            title="Print invoice"
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
-                          >
-                            <Printer className="w-3.5 h-3.5" />
-                            Print
-                          </Link>
-                          <Link
                             href={`/dashboard/invoices/${inv.id}/receipt`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            title="Thermal receipt"
+                            title="Print receipt"
                             className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
                           >
                             <FileText className="w-3.5 h-3.5" />
@@ -571,6 +686,16 @@ export function InvoicesClient({ invoices, fmt }: Props) {
             )}
           </div>
         </div>
+      )}
+
+      {/* Invoice detail modal */}
+      {selectedInvoice && (
+        <InvoiceDetailModal
+          invoice={selectedInvoice}
+          fmt={fmt}
+          onClose={() => setSelectedInvoice(null)}
+          onRefresh={() => router.refresh()}
+        />
       )}
     </div>
   );

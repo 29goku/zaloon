@@ -25,7 +25,9 @@ import { TopClientsWidget } from "@/components/dashboard/top-clients-widget";
 import { QuickStatsWidget } from "@/components/dashboard/quick-stats-widget";
 import { CustomizeDashboardButton } from "@/components/dashboard/customize-dashboard-button";
 import { BirthdaysWidget, type BirthdayClient } from "@/components/dashboard/birthdays-widget";
+import { TodaySummaryWidget } from "@/components/dashboard/today-summary-widget";
 import { useDashboardLayout } from "@/hooks/use-dashboard-layout";
+import type { ActivityItem as LibActivityItem } from "@/lib/activity-feed";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -110,6 +112,8 @@ type Props = {
   servicesOffered?: number;
   avgRating?: number;
   activeMemberships?: number;
+  // Activity feed from lib
+  recentActivity?: LibActivityItem[];
 };
 
 // ─── Revenue Sparkline ────────────────────────────────────────────────────────
@@ -341,6 +345,7 @@ export function DashboardHome({
   servicesOffered = 0,
   avgRating = 0,
   activeMemberships = 0,
+  recentActivity = [],
 }: Props) {
   const { visible, toggleWidget, resetLayout } = useDashboardLayout();
   const now = new Date(serverNow);
@@ -657,11 +662,26 @@ export function DashboardHome({
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <RevenueProgressBar
-                  current={revenueThisMonth}
-                  target={monthlyTarget}
-                  fmt={fmt}
-                />
+                {monthlyTarget === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-6 gap-3 text-center">
+                    <Target className="w-8 h-8 text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">
+                      No monthly target set yet.
+                    </p>
+                    <Link
+                      href="/dashboard/finance/goals"
+                      className="text-sm font-semibold text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
+                    >
+                      Set a goal →
+                    </Link>
+                  </div>
+                ) : (
+                  <RevenueProgressBar
+                    current={revenueThisMonth}
+                    target={monthlyTarget}
+                    fmt={fmt}
+                  />
+                )}
               </CardContent>
             </Card>
           )}
@@ -809,6 +829,11 @@ export function DashboardHome({
           )}
         </CardContent>
       </Card>}
+
+      {/* ── Today Summary Widget ────────────────────────────────────────────── */}
+      {recentActivity.length > 0 && (
+        <TodaySummaryWidget items={recentActivity} />
+      )}
 
       {/* Upcoming Appointments + Staff Today */}
       {(visible.upcoming || visible.staffUtilization) && (

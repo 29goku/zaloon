@@ -1,12 +1,11 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getClientTier } from "@/lib/loyalty-tiers";
 
-// ─── Loyalty tier helper ─────────────────────────────────────────────────────
+// ─── Loyalty tier helper (kept for backwards compat) ─────────────────────────
 
 function loyaltyTier(points: number): string {
-  if (points >= 1000) return "Gold";
-  if (points >= 400) return "Silver";
-  return "Bronze";
+  return getClientTier(points).name;
 }
 
 // ─── POST /portal/[slug]/lookup ──────────────────────────────────────────────
@@ -72,23 +71,38 @@ export async function POST(
   }
 
   // Past 10 completed appointments for recentHistory
-  const recentHistory = await prisma.appointment.findMany({
-    where: { clientId: client.id, status: "COMPLETED" },
-    orderBy: [{ date: "desc" }, { startTime: "desc" }],
-    take: 10,
-    select: {
-      id: true,
-      date: true,
-      startTime: true,
-      totalAmount: true,
-      status: true,
-      Staff: { select: { id: true, name: true } },
-      AppointmentService: {
-        select: { Service: { select: { id: true, name: true } } },
+  const [recentHistory, ledgerEntries] = await Promise.all([
+    prisma.appointment.findMany({
+      where: { clientId: client.id, status: "COMPLETED" },
+      orderBy: [{ date: "desc" }, { startTime: "desc" }],
+      take: 10,
+      select: {
+        id: true,
+        date: true,
+        startTime: true,
+        totalAmount: true,
+        status: true,
+        Staff: { select: { id: true, name: true } },
+        AppointmentService: {
+          select: { Service: { select: { id: true, name: true } } },
+        },
+        Review: { select: { rating: true } },
       },
-      Review: { select: { rating: true } },
-    },
-  });
+    }),
+    // Last 5 LOYALTY ledger entries for the portal loyalty page
+    prisma.ledgerEntry.findMany({
+      where: { clientId: client.id, type: "LOYALTY" },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: {
+        id: true,
+        type: true,
+        amount: true,
+        note: true,
+        createdAt: true,
+      },
+    }),
+  ]);
 
   return Response.json({
     clientId: client.id,
@@ -97,5 +111,6 @@ export async function POST(
     tier: loyaltyTier(client.loyaltyPoints),
     upcomingAppointments: client.Appointment,
     recentHistory,
+    ledgerEntries,
   });
 }

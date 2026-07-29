@@ -9,9 +9,14 @@ import {
   CheckCircle2,
   Users,
   PartyPopper,
+  CalendarDays,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { sendBirthdayWish, sendAllBirthdayWishes } from "@/app/actions/clients";
+import {
+  sendBirthdayWish,
+  sendAllBirthdayWishes,
+  sendBirthdayMessage,
+} from "@/app/actions/clients";
 
 interface BirthdayClient {
   id: string;
@@ -29,12 +34,24 @@ interface AnniversaryClient {
   yearsCount: number;
 }
 
+interface UpcomingBirthdayClient {
+  id: string;
+  name: string;
+  phone: string | null;
+  birthday: Date | null;
+  loyaltyPoints: number;
+  daysUntil: number;
+  upcomingDate: Date;
+  lastVisitDate: string | null;
+}
+
 interface Props {
   birthdayClients: BirthdayClient[];
   anniversaryClients: AnniversaryClient[];
   totalBirthdaysThisMonth: number;
   totalAnniversariesThisMonth: number;
   wishesSentToday: number;
+  upcomingBirthdays: UpcomingBirthdayClient[];
 }
 
 function isBirthdayToday(birthday: Date | null): boolean {
@@ -62,12 +79,18 @@ export function BirthdaysPageClient({
   totalBirthdaysThisMonth,
   totalAnniversariesThisMonth,
   wishesSentToday,
+  upcomingBirthdays,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
   const [errorMap, setErrorMap] = useState<Record<string, string>>({});
   const [batchResult, setBatchResult] = useState<null | { sent: number }>(null);
+
+  // State for upcoming birthday messages
+  const [sentUpcomingIds, setSentUpcomingIds] = useState<Set<string>>(new Set());
+  const [upcomingErrorMap, setUpcomingErrorMap] = useState<Record<string, string>>({});
+  const [upcomingBulkResult, setUpcomingBulkResult] = useState<null | { sent: number; failed: number }>(null);
 
   function handleSendWish(clientId: string) {
     startTransition(async () => {
@@ -90,6 +113,40 @@ export function BirthdaysPageClient({
       setBatchResult(result);
       // Mark all birthday clients as sent
       setSentIds(new Set(birthdayClients.map((c) => c.id)));
+      router.refresh();
+    });
+  }
+
+  function handleSendBirthdayMessage(clientId: string) {
+    startTransition(async () => {
+      const result = await sendBirthdayMessage(clientId);
+      if (result.success) {
+        setSentUpcomingIds((prev) => new Set([...prev, clientId]));
+        router.refresh();
+      } else {
+        setUpcomingErrorMap((prev) => ({
+          ...prev,
+          [clientId]: result.error ?? "Failed to send",
+        }));
+      }
+    });
+  }
+
+  function handleBulkSendUpcoming() {
+    startTransition(async () => {
+      let sent = 0;
+      let failed = 0;
+      for (const client of upcomingBirthdays) {
+        if (sentUpcomingIds.has(client.id)) continue;
+        const result = await sendBirthdayMessage(client.id);
+        if (result.success) {
+          sent++;
+        } else {
+          failed++;
+        }
+      }
+      setSentUpcomingIds(new Set(upcomingBirthdays.map((c) => c.id)));
+      setUpcomingBulkResult({ sent, failed });
       router.refresh();
     });
   }
@@ -341,6 +398,148 @@ export function BirthdaysPageClient({
                   </div>
                 );
               })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Upcoming Birthdays (Next 30 Days) ───────────────────────────────── */}
+      <Card className="bg-card border-border">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-lg font-semibold flex items-center gap-2">
+            <Cake className="w-5 h-5 text-purple-500" />
+            Upcoming Birthdays (Next 30 Days)
+            {upcomingBirthdays.length > 0 && (
+              <span className="ml-1 text-xs font-normal px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-600">
+                {upcomingBirthdays.length}
+              </span>
+            )}
+            {upcomingBirthdays.length > 0 && (
+              <button
+                onClick={handleBulkSendUpcoming}
+                disabled={isPending}
+                className="ml-auto flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-50 transition-colors"
+              >
+                <PartyPopper className="w-3.5 h-3.5" />
+                Bulk send
+              </button>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {upcomingBulkResult && (
+            <div className="mb-4 flex items-center gap-2 p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-sm text-purple-700">
+              <CheckCircle2 className="w-4 h-4" />
+              {upcomingBulkResult.sent === 0 && upcomingBulkResult.failed === 0
+                ? "All messages already sent."
+                : `Sent ${upcomingBulkResult.sent} message${upcomingBulkResult.sent !== 1 ? "s" : ""}${upcomingBulkResult.failed > 0 ? `, ${upcomingBulkResult.failed} failed` : ""}.`}
+            </div>
+          )}
+          {upcomingBirthdays.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 gap-2">
+              <CalendarDays className="w-10 h-10 text-muted-foreground" />
+              <p className="text-muted-foreground text-sm">
+                No upcoming birthdays in the next 30 days
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-muted-foreground border-b border-border">
+                    <th className="text-left font-medium pb-2 pr-4">Client</th>
+                    <th className="text-left font-medium pb-2 pr-4">Birthday</th>
+                    <th className="text-left font-medium pb-2 pr-4">Days until</th>
+                    <th className="text-left font-medium pb-2 pr-4">Last visit</th>
+                    <th className="text-left font-medium pb-2 pr-4">Phone</th>
+                    <th className="text-right font-medium pb-2">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {upcomingBirthdays.map((client) => {
+                    const isSoon = client.daysUntil <= 1;
+                    const alreadySent = sentUpcomingIds.has(client.id);
+                    const errMsg = upcomingErrorMap[client.id];
+
+                    return (
+                      <tr
+                        key={client.id}
+                        className={`transition-colors ${
+                          isSoon
+                            ? "border-l-2 border-l-amber-500 bg-amber-500/5 hover:bg-amber-500/10"
+                            : "bg-secondary/40 hover:bg-secondary/70"
+                        }`}
+                      >
+                        <td className="py-3 pr-4">
+                          <div className="flex items-center gap-2">
+                            <div
+                              className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-xs ${
+                                isSoon
+                                  ? "bg-amber-500/20 text-amber-600"
+                                  : "bg-purple-500/15 text-purple-600"
+                              }`}
+                            >
+                              {client.name
+                                .split(" ")
+                                .slice(0, 2)
+                                .map((n) => n[0])
+                                .join("")
+                                .toUpperCase()}
+                            </div>
+                            <span className="font-medium text-foreground truncate max-w-[140px]">
+                              {client.name}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3 pr-4 text-muted-foreground">
+                          {formatMonthDay(client.upcomingDate)}
+                        </td>
+                        <td className="py-3 pr-4">
+                          <span
+                            className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
+                              isSoon
+                                ? "bg-amber-500/15 text-amber-700"
+                                : "bg-purple-500/15 text-purple-600"
+                            }`}
+                          >
+                            {client.daysUntil === 1
+                              ? "Tomorrow"
+                              : `${client.daysUntil}d`}
+                          </span>
+                        </td>
+                        <td className="py-3 pr-4 text-muted-foreground text-xs">
+                          {client.lastVisitDate
+                            ? formatMonthDay(new Date(client.lastVisitDate + "T00:00:00"))
+                            : "No visits yet"}
+                        </td>
+                        <td className="py-3 pr-4 text-muted-foreground text-xs">
+                          {client.phone ?? "—"}
+                        </td>
+                        <td className="py-3 text-right">
+                          {errMsg && (
+                            <p className="text-xs text-destructive mb-1">{errMsg}</p>
+                          )}
+                          {alreadySent ? (
+                            <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Sent
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => handleSendBirthdayMessage(client.id)}
+                              disabled={isPending}
+                              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-purple-500/15 text-purple-700 hover:bg-purple-500/25 disabled:opacity-50 transition-colors"
+                            >
+                              <Send className="w-3 h-3" />
+                              Send message
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </CardContent>

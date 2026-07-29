@@ -16,19 +16,47 @@ import {
   ExternalLink,
   HardDrive,
   Zap,
+  CalendarClock,
+  Brush,
+  ClipboardList,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { IntakeLinkCopy } from "./intake-link-copy";
 
 export const dynamic = "force-dynamic";
 
 const SETTINGS_CATEGORIES = [
   {
+    href: "/dashboard/settings/general",
+    icon: Building2,
+    label: "General",
+    description: "Salon info, timezone, currency, invoice settings",
+    color: "text-blue-400",
+    bg: "bg-blue-400/10",
+  },
+  {
+    href: "/dashboard/settings/branding",
+    icon: Brush,
+    label: "Branding",
+    description: "Logo, tagline, social links, business hours, and invoice settings",
+    color: "text-rose-400",
+    bg: "bg-rose-400/10",
+  },
+  {
+    href: "/dashboard/settings/booking",
+    icon: CalendarClock,
+    label: "Online Booking",
+    description: "Booking window, slot intervals, cancellation policy, and deposits",
+    color: "text-emerald-400",
+    bg: "bg-emerald-400/10",
+  },
+  {
     href: "/dashboard/settings/profile",
     icon: Building2,
     label: "Salon Profile",
     description: "Name, address, contact info, logo",
-    color: "text-blue-400",
-    bg: "bg-blue-400/10",
+    color: "text-sky-400",
+    bg: "bg-sky-400/10",
   },
   {
     href: "/dashboard/settings/hours",
@@ -53,6 +81,14 @@ const SETTINGS_CATEGORIES = [
     description: "Staff members and permissions",
     color: "text-pink-400",
     bg: "bg-pink-400/10",
+  },
+  {
+    href: "/dashboard/settings/users",
+    icon: Users,
+    label: "Team & Users",
+    description: "Dashboard access, roles, and invites",
+    color: "text-fuchsia-400",
+    bg: "bg-fuchsia-400/10",
   },
   {
     href: "/dashboard/settings/notifications",
@@ -136,6 +172,7 @@ export default async function SettingsHubPage() {
   });
 
   const kioskUrl = salon ? `/kiosk/${salon.slug}` : null;
+  const intakeUrl = salon ? `/intake/${salon.slug}` : null;
 
   return (
     <div className="p-8 max-w-4xl">
@@ -168,6 +205,41 @@ export default async function SettingsHubPage() {
             </div>
           </Link>
         ))}
+      </div>
+
+      {/* ── Intake Form Card ─────────────────────────────────────────────────── */}
+      <div className="mt-8">
+        <h2 className="text-lg font-semibold text-foreground mb-3">Booking &amp; Intake</h2>
+        <div className="rounded-2xl border border-border bg-card p-6">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-xl bg-indigo-400/10 flex items-center justify-center shrink-0">
+              <ClipboardList className="w-6 h-6 text-indigo-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-base font-semibold text-foreground">Client Intake Form</p>
+              <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+                Share this link with new clients before their first visit. They fill out a short form so you have their details on file.
+              </p>
+
+              {intakeUrl ? (
+                <div className="mt-4 space-y-3">
+                  <IntakeLinkCopy intakePath={intakeUrl} />
+                  <Link
+                    href="/dashboard/settings/intake-form"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary/30 px-3 py-1.5 text-xs font-medium text-foreground hover:border-primary/40 hover:bg-secondary/60 transition-colors"
+                  >
+                    <ClipboardList className="w-3.5 h-3.5" />
+                    Edit form fields
+                  </Link>
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-muted-foreground italic">
+                  No salon found — complete onboarding to enable the intake form.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* ── Kiosk Mode Card ──────────────────────────────────────────────────── */}

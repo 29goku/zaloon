@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Plus, X, CalendarPlus, UserPlus, Zap, FileText } from "lucide-react";
+import { Plus, X, CalendarPlus, UserPlus, Zap, FileText, UserCheck, ListPlus } from "lucide-react";
 
 interface FabAction {
   label: string;
@@ -36,6 +36,18 @@ const ACTIONS: FabAction[] = [
     href: "/dashboard/invoices",
     icon: FileText,
     colour: "bg-primary text-primary-foreground",
+  },
+  {
+    label: "Check In",
+    href: "/dashboard/checkin",
+    icon: UserCheck,
+    colour: "bg-emerald-500/20 text-emerald-700",
+  },
+  {
+    label: "Waitlist",
+    href: "/dashboard/waitlist",
+    icon: ListPlus,
+    colour: "bg-purple-500/20 text-purple-700",
   },
 ];
 

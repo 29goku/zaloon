@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { CampaignDialog, QuickCreateCampaignDialog } from "@/components/campaigns/campaign-dialog";
 import { CampaignActions } from "@/components/campaigns/campaign-actions";
+import { CampaignWizardDialog } from "@/components/campaigns/campaign-wizard-dialog";
 
 export const dynamic = "force-dynamic";
 
@@ -259,6 +260,7 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
             <BookOpen className="w-4 h-4" />
             Templates
           </Link>
+          <CampaignWizardDialog />
           <CampaignDialog prefillMessage={templateMessage} />
         </div>
       </div>

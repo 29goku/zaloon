@@ -1,6 +1,7 @@
 import { Zap } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { QuickPayContainer } from "@/components/quick-pay/quick-pay-container";
+import { getRetailProducts } from "@/app/actions/inventory";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,15 @@ export interface ServiceOption {
   name: string;
   price: number;
   categoryName: string;
+}
+
+export interface RetailProductOption {
+  id: string;
+  name: string;
+  price: number;
+  stock: number;
+  unit: string;
+  sku: string | null;
 }
 
 async function getRecentInvoices(): Promise<RecentInvoice[]> {
@@ -59,10 +69,23 @@ async function getServices(): Promise<ServiceOption[]> {
   }));
 }
 
+async function getRetailProductOptions(): Promise<RetailProductOption[]> {
+  const products = await getRetailProducts();
+  return products.map((p) => ({
+    id: p.id,
+    name: p.name,
+    price: p.salePrice ?? 0,
+    stock: p.quantity,
+    unit: p.unit,
+    sku: p.sku ?? null,
+  }));
+}
+
 export default async function QuickPayPage() {
-  const [recentInvoices, services] = await Promise.all([
+  const [recentInvoices, services, retailProducts] = await Promise.all([
     getRecentInvoices(),
     getServices(),
+    getRetailProductOptions(),
   ]);
 
   return (
@@ -75,7 +98,11 @@ export default async function QuickPayPage() {
         <p className="text-muted-foreground mt-1">Fast point-of-sale checkout</p>
       </div>
 
-      <QuickPayContainer initialInvoices={recentInvoices} services={services} />
+      <QuickPayContainer
+        initialInvoices={recentInvoices}
+        services={services}
+        retailProducts={retailProducts}
+      />
     </div>
   );
 }

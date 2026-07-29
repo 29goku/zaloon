@@ -29,15 +29,11 @@ import {
   Settings2,
   CreditCard,
   Package2,
-  AlertTriangle,
   Image,
   BarChart2,
 } from "lucide-react";
 import {
   QuickActions,
-  NotesEditor,
-  TagsEditor,
-  PreferencesEditor,
   ClientFlagsToggle,
   CommunicationTab,
 } from "./client-detail-actions";
@@ -48,10 +44,17 @@ import {
   StarRating,
   PhotoGallery,
 } from "./appointment-history-actions";
-import type { ClientPreferences } from "@/app/actions/clients";
 import type { AppointmentNotes } from "@/app/actions/appointments";
 import { parseClientNotes } from "@/app/actions/clients-constants";
 import { getClientPackages, getPackages } from "@/app/actions/packages";
+import { getAllClientTags } from "@/app/actions/clients";
+import { AllergyAlertBadge } from "@/components/clients/allergy-alert-badge";
+import { ClientNotesTimeline } from "@/components/clients/client-notes-timeline";
+import { ClientTagsInput } from "@/components/clients/client-tags-input";
+import { ClientPreferencesPanel } from "@/components/clients/client-preferences-panel";
+import type { ExtendedClientPreferences } from "@/components/clients/client-preferences-panel";
+import { AllergyAlertBanner } from "@/components/clients/allergy-alert-banner";
+import { ClientCustomFields } from "@/components/clients/client-custom-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -69,7 +72,7 @@ export default async function ClientDetailPage({
 }) {
   const { id } = await params;
 
-  const [client, salon, availablePlans, clientPackages, allPackages, communications] = await Promise.all([
+  const [client, salon, availablePlans, clientPackages, allPackages, communications, allStaff, allTagsList] = await Promise.all([
     prisma.client.findUnique({
       where: { id },
       include: {
@@ -90,10 +93,8 @@ export default async function ClientDetailPage({
           orderBy: { createdAt: "desc" },
         },
         ClientMembership: {
-          where: { status: "ACTIVE" },
           include: { Plan: true },
           orderBy: { createdAt: "desc" },
-          take: 1,
         },
       },
     }),
@@ -117,6 +118,11 @@ export default async function ClientDetailPage({
         createdAt: true,
       },
     }),
+    prisma.staff.findMany({
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    getAllClientTags(),
   ]);
 
   if (!client) notFound();
@@ -215,18 +221,52 @@ export default async function ClientDetailPage({
     avgFrequencyDays = Math.round(gap / (cDates.length - 1) / (1000 * 60 * 60 * 24));
   }
 
+  // Month streak: consecutive months (going backwards from today) with at least one completed visit
+  let monthStreak = 0;
+  if (completedOnly.length > 0) {
+    const now = new Date();
+    let checkYear = now.getFullYear();
+    let checkMonth = now.getMonth();
+    // Allow current month and go back
+    for (let i = 0; i < 24; i++) {
+      const hasVisit = completedOnly.some((a) => {
+        const d = new Date(a.date + "T00:00:00");
+        return d.getFullYear() === checkYear && d.getMonth() === checkMonth;
+      });
+      if (!hasVisit) break;
+      monthStreak++;
+      checkMonth--;
+      if (checkMonth < 0) { checkMonth = 11; checkYear--; }
+    }
+  }
+
+  type RetentionStatus = "active" | "at-risk" | "lost";
+  let retentionStatus: RetentionStatus = "active";
+  if (lastVisitDaysAgo !== null) {
+    if (lastVisitDaysAgo > 90) retentionStatus = "lost";
+    else if (lastVisitDaysAgo > 45) retentionStatus = "at-risk";
+    else retentionStatus = "active";
+  } else if (completedOnly.length === 0) {
+    retentionStatus = "active"; // new client
+  }
+
   // --- Allergy detection ---
   const parsedNotes = parseClientNotes(client.notes);
   const allergyNotes = parsedNotes.filter((n) => n.type === "allergy");
   let prefsObj: Record<string, unknown> = {};
   try { prefsObj = JSON.parse(client.preferences ?? "{}") as Record<string, unknown>; } catch { /* */ }
-  const allergyPreference = typeof prefsObj.allergies === "string" && prefsObj.allergies.trim()
-    ? prefsObj.allergies.trim()
-    : null;
+
+  // Support both legacy string and new array format
+  const allergyPreference: string[] = [];
+  if (Array.isArray(prefsObj.allergies)) {
+    allergyPreference.push(...(prefsObj.allergies as string[]).filter((a): a is string => typeof a === "string" && a.trim() !== ""));
+  } else if (typeof prefsObj.allergies === "string" && prefsObj.allergies.trim()) {
+    allergyPreference.push(prefsObj.allergies.trim());
+  }
 
   const allergyAlertText: string[] = [];
   if (allergyNotes.length > 0) allergyAlertText.push(...allergyNotes.map((n) => n.text));
-  if (allergyPreference) allergyAlertText.push(allergyPreference);
+  allergyAlertText.push(...allergyPreference);
   // Also check notes for allergy keywords as fallback
   const allergyKeywords = ["allerg", "react", "sensitive", "ppd", "ammonia", "latex", "penicillin", "sulfa"];
   if (allergyAlertText.length === 0) {
@@ -247,15 +287,7 @@ export default async function ClientDetailPage({
     <div className="p-4 md:p-8">
       {/* ── Allergy Alert Banner ──────────────────────────────── */}
       {hasAllergyAlert && (
-        <div className="mb-6 flex items-start gap-3 rounded-xl border border-[#F41666]/40 bg-[#F41666]/10 px-4 py-3">
-          <AlertTriangle className="w-5 h-5 text-[#F41666] flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold text-[#F41666]">Allergy Alert</p>
-            <p className="text-sm text-[#F41666]/80 mt-0.5">
-              {allergyAlertText.join(" | ")}
-            </p>
-          </div>
-        </div>
+        <AllergyAlertBanner alertTexts={allergyAlertText} />
       )}
 
       {/* Back button */}
@@ -385,9 +417,107 @@ export default async function ClientDetailPage({
                 </p>
                 <MembershipSection
                   clientId={id}
-                  activeMembership={client.ClientMembership[0] ?? null}
+                  activeMembership={
+                    client.ClientMembership.find((m) => m.status === "ACTIVE") ?? null
+                  }
                   availablePlans={availablePlans}
                 />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Retention Score */}
+          <Card className="bg-card border-border">
+            <CardHeader className="p-4 pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-[#F48E16]" />
+                  Retention Score
+                </CardTitle>
+                {/* Status badge */}
+                {retentionStatus === "active" && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                    Active
+                  </span>
+                )}
+                {retentionStatus === "at-risk" && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-semibold text-amber-600">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />
+                    At-Risk
+                  </span>
+                )}
+                {retentionStatus === "lost" && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F41666]/15 px-2 py-0.5 text-xs font-semibold text-[#F41666]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#F41666] flex-shrink-0" />
+                    Lost
+                  </span>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 pt-2">
+              <div className="grid grid-cols-2 gap-3">
+                {/* Last Visit */}
+                <div className="rounded-lg bg-secondary/40 p-2.5">
+                  <div className="flex items-center gap-1 mb-1">
+                    <CalendarDays className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                    <p className="text-xs font-medium text-muted-foreground">Last Visit</p>
+                  </div>
+                  {lastVisitAppt ? (
+                    <>
+                      <p className="text-sm font-semibold text-foreground leading-tight">
+                        {new Date(lastVisitAppt.date + "T00:00:00").toLocaleDateString("en", {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        ({lastVisitDaysAgo}d ago)
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">—</p>
+                  )}
+                </div>
+
+                {/* Visit Frequency */}
+                <div className="rounded-lg bg-secondary/40 p-2.5">
+                  <div className="flex items-center gap-1 mb-1">
+                    <Clock className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                    <p className="text-xs font-medium text-muted-foreground">Frequency</p>
+                  </div>
+                  <p className="text-sm font-semibold text-foreground leading-tight">
+                    {avgFrequencyDays !== null ? `every ${avgFrequencyDays}d` : "—"}
+                  </p>
+                </div>
+
+                {/* Next Expected Visit */}
+                <div className="rounded-lg bg-secondary/40 p-2.5">
+                  <div className="flex items-center gap-1 mb-1">
+                    <CalendarDays className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                    <p className="text-xs font-medium text-muted-foreground">Next Expected</p>
+                  </div>
+                  <p className="text-sm font-semibold text-foreground leading-tight">
+                    {nextVisitPrediction ?? "—"}
+                  </p>
+                </div>
+
+                {/* Streak */}
+                <div className="rounded-lg bg-secondary/40 p-2.5">
+                  <div className="flex items-center gap-1 mb-1">
+                    <TrendingUp className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                    <p className="text-xs font-medium text-muted-foreground">Streak</p>
+                  </div>
+                  <p className="text-sm font-semibold text-foreground leading-tight">
+                    {monthStreak > 1
+                      ? `${monthStreak} months`
+                      : completedOnly.length === 1
+                      ? "1 visit"
+                      : monthStreak === 1
+                      ? "1 month"
+                      : "—"}
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -470,6 +600,10 @@ export default async function ClientDetailPage({
               <TabsTrigger value="visits">Appointments</TabsTrigger>
               <TabsTrigger value="ledger">Ledger</TabsTrigger>
               <TabsTrigger value="loyalty">Loyalty</TabsTrigger>
+              <TabsTrigger value="membership">
+                <CreditCard className="w-3.5 h-3.5 mr-1" />
+                Membership
+              </TabsTrigger>
               <TabsTrigger value="packages">
                 <Package2 className="w-3.5 h-3.5 mr-1" />
                 Packages
@@ -542,6 +676,33 @@ export default async function ClientDetailPage({
                           <p className="text-xs text-muted-foreground mt-1">Avg frequency</p>
                         </div>
                       )}
+                      {/* Retention status tile */}
+                      <div
+                        className={`rounded-lg p-3 ${
+                          retentionStatus === "active"
+                            ? "bg-emerald-500/10"
+                            : retentionStatus === "at-risk"
+                            ? "bg-amber-500/10"
+                            : "bg-[#F41666]/10"
+                        }`}
+                      >
+                        <p
+                          className={`text-lg font-bold leading-none ${
+                            retentionStatus === "active"
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : retentionStatus === "at-risk"
+                              ? "text-amber-600"
+                              : "text-[#F41666]"
+                          }`}
+                        >
+                          {retentionStatus === "active"
+                            ? "Active"
+                            : retentionStatus === "at-risk"
+                            ? "At-Risk"
+                            : "Lost"}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">Status</p>
+                      </div>
                     </div>
                   </div>
 
@@ -986,6 +1147,190 @@ export default async function ClientDetailPage({
               })()}
             </TabsContent>
 
+            {/* ── Membership tab ─────────────────────────── */}
+            <TabsContent value="membership">
+              <div className="space-y-6">
+                {/* Current active plan */}
+                {(() => {
+                  const active = client.ClientMembership.find((m) => m.status === "ACTIVE");
+                  return (
+                    <div className="p-5 rounded-xl bg-card border border-border">
+                      <div className="flex items-center gap-2 mb-4">
+                        <CreditCard className="w-5 h-5 text-primary" />
+                        <h3 className="font-semibold text-foreground">Current Plan</h3>
+                      </div>
+                      {active ? (
+                        <div className="space-y-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-foreground">{active.Plan.name}</p>
+                              <p className="text-sm text-muted-foreground mt-0.5">
+                                {active.Plan.price.toLocaleString("en-US", {
+                                  style: "currency",
+                                  currency: currency,
+                                  maximumFractionDigits: 0,
+                                })}
+                                /mo · {active.Plan.sessionsPerMonth} sessions/mo
+                                {active.Plan.discountPct > 0 &&
+                                  ` · ${active.Plan.discountPct}% off extras`}
+                              </p>
+                            </div>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 flex-shrink-0">
+                              Active
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-3">
+                            <div className="rounded-lg bg-secondary/40 p-3">
+                              <p className="text-lg font-bold text-foreground leading-none">
+                                {active.Plan.sessionsPerMonth - active.sessionsUsed}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1">Sessions left</p>
+                            </div>
+                            <div className="rounded-lg bg-secondary/40 p-3">
+                              <p className="text-lg font-bold text-foreground leading-none">
+                                {active.sessionsUsed}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1">Used this month</p>
+                            </div>
+                            <div className="rounded-lg bg-secondary/40 p-3">
+                              <p className="text-sm font-semibold text-foreground leading-tight">
+                                {active.endDate ?? "—"}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1">Renews</p>
+                            </div>
+                          </div>
+                          {/* Sessions progress bar */}
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>Sessions used</span>
+                              <span>
+                                {active.sessionsUsed} / {active.Plan.sessionsPerMonth}
+                              </span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-primary transition-all"
+                                style={{
+                                  width: `${Math.min(100, (active.sessionsUsed / active.Plan.sessionsPerMonth) * 100)}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                          {active.Plan.description && (
+                            <p className="text-xs text-muted-foreground italic border-l-2 border-primary/30 pl-2">
+                              {active.Plan.description}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <p className="text-sm text-muted-foreground">
+                            This client has no active membership.
+                          </p>
+                          {availablePlans.length > 0 && (
+                            <MembershipSection
+                              clientId={id}
+                              activeMembership={null}
+                              availablePlans={availablePlans}
+                            />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Membership history */}
+                <div className="p-5 rounded-xl bg-card border border-border">
+                  <div className="flex items-center gap-2 mb-4">
+                    <CalendarDays className="w-5 h-5 text-primary" />
+                    <h3 className="font-semibold text-foreground">Membership History</h3>
+                  </div>
+                  {client.ClientMembership.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No membership history yet.</p>
+                  ) : (
+                    <div className="rounded-xl border border-border overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted/40">
+                          <tr>
+                            <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide px-4 py-3">
+                              Plan
+                            </th>
+                            <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide px-4 py-3 hidden sm:table-cell">
+                              Start
+                            </th>
+                            <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide px-4 py-3 hidden sm:table-cell">
+                              End
+                            </th>
+                            <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wide px-4 py-3 hidden md:table-cell">
+                              Sessions
+                            </th>
+                            <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide px-4 py-3">
+                              Status
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {client.ClientMembership.map((m) => {
+                            const statusMap: Record<string, string> = {
+                              ACTIVE: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+                              PAUSED: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
+                              CANCELLED: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+                            };
+                            const sc = statusMap[m.status] ?? "bg-muted text-muted-foreground";
+                            return (
+                              <tr key={m.id} className="bg-card hover:bg-muted/20 transition-colors">
+                                <td className="px-4 py-3 font-medium text-foreground">
+                                  {m.Plan.name}
+                                </td>
+                                <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">
+                                  {m.startDate}
+                                </td>
+                                <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">
+                                  {m.endDate ?? "—"}
+                                </td>
+                                <td className="px-4 py-3 text-center hidden md:table-cell">
+                                  <span className="font-semibold text-foreground tabular-nums">
+                                    {m.sessionsUsed}
+                                  </span>
+                                  <span className="text-muted-foreground">
+                                    /{m.Plan.sessionsPerMonth}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span
+                                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${sc}`}
+                                  >
+                                    {m.status.charAt(0) + m.status.slice(1).toLowerCase()}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Enroll in plan (if no active membership) */}
+                {!client.ClientMembership.find((m) => m.status === "ACTIVE") &&
+                  availablePlans.length > 0 && (
+                    <div className="p-5 rounded-xl bg-card border border-border">
+                      <div className="flex items-center gap-2 mb-3">
+                        <CreditCard className="w-5 h-5 text-primary" />
+                        <h3 className="font-semibold text-foreground">Enroll in Plan</h3>
+                      </div>
+                      <MembershipSection
+                        clientId={id}
+                        activeMembership={null}
+                        availablePlans={availablePlans}
+                      />
+                    </div>
+                  )}
+              </div>
+            </TabsContent>
+
             {/* ── Packages tab ───────────────────────────── */}
             <TabsContent value="packages">
               <ClientPackagesSection
@@ -1016,7 +1361,7 @@ export default async function ClientDetailPage({
                     Client Notes
                   </h3>
                 </div>
-                <NotesEditor
+                <ClientNotesTimeline
                   clientId={id}
                   initialNotes={parsedNotes}
                 />
@@ -1046,7 +1391,7 @@ export default async function ClientDetailPage({
                   <Tag className="w-5 h-5 text-primary" />
                   <h3 className="font-semibold text-foreground">Client Tags</h3>
                 </div>
-                <TagsEditor
+                <ClientTagsInput
                   clientId={id}
                   initialTags={(() => {
                     try {
@@ -1055,6 +1400,7 @@ export default async function ClientDetailPage({
                       return [];
                     }
                   })()}
+                  allTags={allTagsList}
                 />
               </div>
             </TabsContent>
@@ -1069,17 +1415,17 @@ export default async function ClientDetailPage({
                       Client Preferences
                     </h3>
                   </div>
-                  <PreferencesEditor
+                  {/* Allergy alert inside preferences panel */}
+                  {hasAllergyAlert && (
+                    <AllergyAlertBadge
+                      preferences={prefsObj}
+                      className="mb-4"
+                    />
+                  )}
+                  <ClientPreferencesPanel
                     clientId={id}
-                    initialPreferences={(() => {
-                      try {
-                        return JSON.parse(
-                          client.preferences ?? "{}"
-                        ) as ClientPreferences;
-                      } catch {
-                        return {};
-                      }
-                    })()}
+                    initialPreferences={prefsObj as ExtendedClientPreferences}
+                    staffOptions={allStaff}
                   />
                 </div>
 
@@ -1113,6 +1459,7 @@ export default async function ClientDetailPage({
                 communications={communications}
               />
             </TabsContent>
+
           </Tabs>
         </div>
       </div>

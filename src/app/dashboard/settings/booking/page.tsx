@@ -1,16 +1,15 @@
-import { getBookingRules } from "@/app/actions/settings";
-import { BookingRulesForm } from "@/components/settings/booking-rules-form";
-import { Settings2, ArrowLeft } from "lucide-react";
+import { getExtendedBookingRules } from "@/app/actions/settings";
+import { BookingSettingsForm } from "@/components/settings/booking-settings-form";
+import { CalendarClock, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
-export default async function BookingRulesPage() {
-  const bookingRules = await getBookingRules();
+export default async function BookingSettingsPage() {
+  const rules = await getExtendedBookingRules();
 
   return (
     <div className="p-8">
-      {/* Breadcrumb */}
       <div className="mb-6">
         <Link
           href="/dashboard/settings"
@@ -23,15 +22,15 @@ export default async function BookingRulesPage() {
 
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
-          <Settings2 className="w-7 h-7 text-primary" />
-          Booking Rules
+          <CalendarClock className="w-7 h-7 text-primary" />
+          Online Booking Settings
         </h1>
         <p className="text-muted-foreground mt-1">
-          Control how and when clients can book appointments online.
+          Booking window, client requirements, cancellation policy, and deposit rules
         </p>
       </div>
 
-      <BookingRulesForm initial={bookingRules} />
+      <BookingSettingsForm initial={rules} />
     </div>
   );
 }
