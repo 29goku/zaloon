@@ -117,6 +117,21 @@ export async function updateService(
   }
 }
 
+// ── toggleServiceActive ────────────────────────────────────────────────────
+
+export async function toggleServiceActive(
+  id: string,
+  active: boolean
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    await prisma.service.update({ where: { id }, data: { active } });
+    return { success: true };
+  } catch (err) {
+    console.error("[toggleServiceActive]", err);
+    return { success: false, error: "Failed to update service" };
+  }
+}
+
 // ── deleteService ──────────────────────────────────────────────────────────
 
 export async function deleteService(
