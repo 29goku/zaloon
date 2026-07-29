@@ -15,6 +15,8 @@ import {
   Receipt,
   Banknote,
   Bell,
+  ClipboardList,
+  Star,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
@@ -31,6 +33,7 @@ const navItems = [
   { href: "/dashboard/quick-pay", label: "Quick Pay", icon: Zap },
   { href: "/dashboard/reports", label: "Reports", icon: BarChart3 },
   { href: "/dashboard/reminders", label: "Reminders", icon: Bell },
+  { href: "/dashboard/waitlist", label: "Waitlist", icon: ClipboardList },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 
