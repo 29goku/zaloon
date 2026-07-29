@@ -1,105 +1,149 @@
 import { prisma } from "@/lib/prisma";
-import { Card, CardContent } from "@/components/ui/card";
-import { UserCircle, Plus, Phone, Mail, Cake } from "lucide-react";
+import { UserCircle } from "lucide-react";
+import { AddClientDialog } from "@/components/clients/add-client-dialog";
+import { ClientsGrid } from "@/components/clients/clients-grid";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ClientFilters } from "@/components/clients/client-filters";
+import { ExportClientsButton } from "@/components/clients/export-clients-button";
 
 export const dynamic = "force-dynamic";
 
-export default async function ClientsPage() {
-  const clients = await prisma.client.findMany({
-    orderBy: { name: "asc" },
+type SearchParams = {
+  search?: string;
+  sortBy?: string;
+  filter?: string;
+};
+
+export default async function ClientsPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
+  const { search, sortBy, filter } = await searchParams;
+
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now);
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  // Format as "YYYY-MM-DD" to compare against the stored string date
+  const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().slice(0, 10);
+  const currentMonth = now.getMonth(); // 0-indexed
+
+  const rawClients = await prisma.client.findMany({
+    where: {
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search } },
+              { phone: { contains: search } },
+            ],
+          }
+        : {}),
+    },
+    orderBy:
+      sortBy === "name" || !sortBy ? { name: "asc" } : { createdAt: "asc" },
     include: {
-      _count: { select: { appointments: true, ledger: true } },
+      _count: { select: { Appointment: true } },
+      Appointment: {
+        select: { totalAmount: true, date: true },
+        orderBy: { date: "desc" },
+      },
+      ledger: { select: { type: true, amount: true } },
     },
   });
 
-  const today = new Date();
+  // Compute derived fields and apply post-query filters
+  let clients = rawClients.map((c) => {
+    const ledgerBalance = c.ledger.reduce((sum, entry) => {
+      return entry.type === "CREDIT"
+        ? sum + entry.amount
+        : sum - entry.amount;
+    }, 0);
 
-  function isBirthdayThisMonth(birthday: Date | null) {
-    if (!birthday) return false;
-    return new Date(birthday).getMonth() === today.getMonth();
+    const totalSpent = c.Appointment.reduce((sum, a) => sum + a.totalAmount, 0);
+    const lastVisit =
+      c.Appointment.length > 0 ? c.Appointment[0].date : null;
+
+    return {
+      id: c.id,
+      name: c.name,
+      phone: c.phone,
+      email: c.email,
+      birthday: c.birthday,
+      anniversary: c.anniversary,
+      notes: c.notes,
+      createdAt: c.createdAt,
+      loyaltyPoints: c.loyaltyPoints,
+      _count: { Appointment: c._count.Appointment },
+      ledgerBalance,
+      totalSpent,
+      lastVisit,
+    };
+  });
+
+  // Apply filter
+  if (filter === "active") {
+    clients = clients.filter(
+      (c) => c.lastVisit !== null && c.lastVisit >= thirtyDaysAgoStr
+    );
+  } else if (filter === "inactive") {
+    clients = clients.filter(
+      (c) => c.lastVisit === null || c.lastVisit < thirtyDaysAgoStr
+    );
+  } else if (filter === "birthday") {
+    clients = clients.filter(
+      (c) =>
+        c.birthday !== null &&
+        new Date(c.birthday).getMonth() === currentMonth
+    );
   }
+
+  // Apply sort (fields that require post-processing)
+  if (sortBy === "visits") {
+    clients.sort((a, b) => b._count.Appointment - a._count.Appointment);
+  } else if (sortBy === "balance") {
+    clients.sort((a, b) => b.ledgerBalance - a.ledgerBalance);
+  } else if (sortBy === "lastVisit") {
+    clients.sort((a, b) => {
+      if (!a.lastVisit && !b.lastVisit) return 0;
+      if (!a.lastVisit) return 1;
+      if (!b.lastVisit) return -1;
+      return b.lastVisit.localeCompare(a.lastVisit);
+    });
+  }
+  // sortBy === "name" is handled by Prisma orderBy above
 
   return (
     <div className="p-8">
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Clients</h1>
           <p className="text-muted-foreground mt-1">
             {clients.length} client{clients.length !== 1 ? "s" : ""}
+            {(search || filter) && rawClients.length !== clients.length
+              ? ` of ${rawClients.length} total`
+              : ""}
           </p>
         </div>
-        <button className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors">
-          <Plus className="w-4 h-4" />
-          Add Client
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <ClientFilters />
+          <ExportClientsButton />
+          <AddClientDialog />
+        </div>
       </div>
 
       {clients.length === 0 ? (
-        <div className="text-center py-24">
-          <UserCircle className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-          <p className="text-muted-foreground">No clients yet</p>
-        </div>
+        <EmptyState
+          icon={<UserCircle className="w-8 h-8" />}
+          title={search || filter ? "No matching clients" : "No clients yet"}
+          description={
+            search || filter
+              ? "Try adjusting your search or filters to find what you're looking for."
+              : "Add your first client to start tracking appointments and history."
+          }
+          action={<AddClientDialog />}
+        />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {clients.map((client) => (
-            <Card
-              key={client.id}
-              className="bg-card border-border hover:border-primary/30 transition-colors cursor-pointer"
-            >
-              <CardContent className="p-5">
-                <div className="flex items-start gap-3">
-                  <div className="w-11 h-11 rounded-full bg-[#F48E16]/20 flex items-center justify-center text-[#F48E16] font-bold flex-shrink-0">
-                    {client.name[0].toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-semibold text-foreground truncate">{client.name}</p>
-                      {isBirthdayThisMonth(client.birthday) && (
-                        <span title="Birthday this month">🎂</span>
-                      )}
-                    </div>
-                    {client.phone && (
-                      <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                        <Phone className="w-3 h-3" /> {client.phone}
-                      </p>
-                    )}
-                    {client.email && (
-                      <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5 truncate">
-                        <Mail className="w-3 h-3" /> {client.email}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex gap-4 mt-4 pt-3 border-t border-border">
-                  <div>
-                    <p className="text-lg font-bold text-foreground">
-                      {client._count.appointments}
-                    </p>
-                    <p className="text-xs text-muted-foreground">visits</p>
-                  </div>
-                  {client._count.ledger > 0 && (
-                    <div>
-                      <p className="text-lg font-bold text-[#F41666]">
-                        {client._count.ledger}
-                      </p>
-                      <p className="text-xs text-muted-foreground">ledger entries</p>
-                    </div>
-                  )}
-                  {client.birthday && (
-                    <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
-                      <Cake className="w-3 h-3" />
-                      {new Date(client.birthday).toLocaleDateString("en", {
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <ClientsGrid clients={clients} />
       )}
     </div>
   );

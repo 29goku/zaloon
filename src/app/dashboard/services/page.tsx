@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Scissors, Plus, Clock } from "lucide-react";
+import { Scissors } from "lucide-react";
+import { AddServiceDialog } from "@/components/services/add-service-dialog";
+import { ServiceItem } from "@/components/services/service-item";
+import { DeleteCategoryButton } from "@/components/services/delete-category-button";
 
 export const dynamic = "force-dynamic";
 
@@ -31,10 +34,7 @@ export default async function ServicesPage() {
             {categories.length} categor{categories.length !== 1 ? "ies" : "y"}
           </p>
         </div>
-        <button className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors">
-          <Plus className="w-4 h-4" />
-          Add Service
-        </button>
+        <AddServiceDialog categories={categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon }))} />
       </div>
 
       {categories.length === 0 ? (
@@ -53,24 +53,22 @@ export default async function ServicesPage() {
                   <span className="ml-auto text-xs font-normal text-muted-foreground">
                     {cat.services.length} service{cat.services.length !== 1 ? "s" : ""}
                   </span>
+                  <DeleteCategoryButton
+                    categoryId={cat.id}
+                    categoryName={cat.name}
+                    serviceCount={cat.services.length}
+                  />
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                   {cat.services.map((service) => (
-                    <div
+                    <ServiceItem
                       key={service.id}
-                      className="flex items-center justify-between p-3 rounded-xl bg-secondary/50 hover:bg-secondary transition-colors cursor-pointer"
-                    >
-                      <div>
-                        <p className="font-medium text-foreground text-sm">{service.name}</p>
-                        <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                          <Clock className="w-3 h-3" />
-                          {service.durationMins} min
-                        </p>
-                      </div>
-                      <p className="font-bold text-primary text-sm">{fmt(service.price)}</p>
-                    </div>
+                      service={service}
+                      currency={currency}
+                      fmt={fmt}
+                    />
                   ))}
                 </div>
               </CardContent>

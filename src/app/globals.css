@@ -48,7 +48,44 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* Light theme (default) */
 :root {
+  --background: #f8faf8;
+  --foreground: #0d120d;
+  --card: #ffffff;
+  --card-foreground: #0d120d;
+  --popover: #ffffff;
+  --popover-foreground: #0d120d;
+  --primary: #3a8a2a;
+  --primary-foreground: #ffffff;
+  --secondary: #e8f0e8;
+  --secondary-foreground: #0d120d;
+  --muted: #e8f0e8;
+  --muted-foreground: #5a6e5a;
+  --accent: #3a8a2a;
+  --accent-foreground: #ffffff;
+  --destructive: #d91557;
+  --border: #d0ddd0;
+  --input: #e8f0e8;
+  --ring: #3a8a2a;
+  --chart-1: #3a8a2a;
+  --chart-2: #d97c10;
+  --chart-3: #d91557;
+  --chart-4: #4a9e4a;
+  --chart-5: #2d6b2d;
+  --radius: 0.75rem;
+  --sidebar: #f0f7f0;
+  --sidebar-foreground: #2a3a2a;
+  --sidebar-primary: #3a8a2a;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #dfeadf;
+  --sidebar-accent-foreground: #0d120d;
+  --sidebar-border: #d0ddd0;
+  --sidebar-ring: #3a8a2a;
+}
+
+/* Dark theme */
+.dark {
   --background: #020502;
   --foreground: #f0f0f0;
   --card: #0d120d;
@@ -88,7 +125,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground transition-colors duration-200;
   }
   html {
     @apply font-sans;

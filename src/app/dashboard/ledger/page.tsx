@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BookOpen, TrendingUp, TrendingDown, Plus } from "lucide-react";
+import { BookOpen, TrendingUp, TrendingDown } from "lucide-react";
+import { AddLedgerDialog } from "@/components/ledger/add-ledger-dialog";
+import { DeleteLedgerButton } from "@/components/ledger/delete-ledger-button";
 
 export const dynamic = "force-dynamic";
 
@@ -14,11 +16,17 @@ export default async function LedgerPage() {
       minimumFractionDigits: 0,
     }).format(n);
 
-  const entries = await prisma.ledgerEntry.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 50,
-    include: { client: true },
-  });
+  const [entries, clients] = await Promise.all([
+    prisma.ledgerEntry.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      include: { Client: true },
+    }),
+    prisma.client.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+  ]);
 
   const totalCredit = entries
     .filter((e) => e.type === "CREDIT")
@@ -28,17 +36,29 @@ export default async function LedgerPage() {
     .reduce((s, e) => s + e.amount, 0);
   const balance = totalCredit - totalDebit;
 
+  // Build per-client balance map from ALL entries (re-query without limit)
+  const allEntries = await prisma.ledgerEntry.findMany({
+    select: { clientId: true, type: true, amount: true, Client: { select: { name: true } } },
+  });
+
+  const clientBalanceMap = new Map<string, { name: string; net: number }>();
+  for (const e of allEntries) {
+    const existing = clientBalanceMap.get(e.clientId) ?? { name: e.Client.name, net: 0 };
+    existing.net += e.type === "CREDIT" ? e.amount : -e.amount;
+    clientBalanceMap.set(e.clientId, existing);
+  }
+  const clientBalances = Array.from(clientBalanceMap.entries())
+    .map(([id, data]) => ({ id, ...data }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Ledger</h1>
-          <p className="text-muted-foreground mt-1">Client tab & balance tracking</p>
+          <p className="text-muted-foreground mt-1">Client tab &amp; balance tracking</p>
         </div>
-        <button className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors">
-          <Plus className="w-4 h-4" />
-          Add Entry
-        </button>
+        <AddLedgerDialog clients={clients} />
       </div>
 
       {/* Summary */}
@@ -78,10 +98,44 @@ export default async function LedgerPage() {
         </Card>
       </div>
 
+      {/* Per-Client Balance */}
+      {clientBalances.length > 0 && (
+        <Card className="bg-card border-border mb-8">
+          <CardHeader>
+            <CardTitle className="text-base">Per Client Balance</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="divide-y divide-border">
+              {clientBalances.map((cb) => (
+                <div
+                  key={cb.id}
+                  className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0"
+                >
+                  <span className="text-sm font-medium text-foreground">{cb.name}</span>
+                  <span
+                    className={`text-sm font-bold ${
+                      cb.net >= 0 ? "text-primary" : "text-[#F41666]"
+                    }`}
+                  >
+                    {cb.net >= 0 ? "+" : ""}
+                    {fmt(cb.net)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Entries */}
       <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-base">Recent Entries</CardTitle>
+          <CardTitle className="text-base">
+            Recent Entries
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              (showing up to 50)
+            </span>
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {entries.length === 0 ? (
@@ -94,7 +148,7 @@ export default async function LedgerPage() {
               {entries.map((entry) => (
                 <div
                   key={entry.id}
-                  className="flex items-center gap-4 p-3 rounded-xl hover:bg-secondary/50 transition-colors"
+                  className="flex items-center gap-4 p-3 rounded-xl hover:bg-secondary/50 transition-colors group"
                 >
                   <div
                     className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -111,7 +165,7 @@ export default async function LedgerPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-foreground text-sm">
-                      {entry.client.name}
+                      {entry.Client.name}
                     </p>
                     <p className="text-xs text-muted-foreground truncate">
                       {entry.note ?? entry.type}
@@ -130,6 +184,7 @@ export default async function LedgerPage() {
                       {new Date(entry.createdAt).toLocaleDateString()}
                     </p>
                   </div>
+                  <DeleteLedgerButton id={entry.id} />
                 </div>
               ))}
             </div>
