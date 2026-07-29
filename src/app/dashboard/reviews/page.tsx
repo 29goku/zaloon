@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { Star, Users, TrendingUp, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { DeleteReviewButton, CopyReviewLink, ReviewResponseButton, VisibilityToggle } from "./review-actions";
+import { ReviewSortSelect } from "./sort-select";
 import { parseReviewContent } from "@/lib/review-utils";
 
 export const dynamic = "force-dynamic";
@@ -428,22 +429,12 @@ export default async function ReviewsPage({ searchParams }: PageProps) {
                 ))}
               </div>
 
-              {/* Sort select — submitted as a native form GET */}
-              <form method="GET" action="/dashboard/reviews">
-                {staffIdFilter && <input type="hidden" name="staffId" value={staffIdFilter} />}
-                {filterMode !== "all" && <input type="hidden" name="filter" value={filterMode} />}
-                <select
-                  name="sort"
-                  defaultValue={sortMode}
-                  onChange={(e) => (e.target.form as HTMLFormElement | null)?.submit()}
-                  className="h-8 rounded-lg border border-input bg-background px-3 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  <option value="newest">Newest</option>
-                  <option value="oldest">Oldest</option>
-                  <option value="rating-high">Rating ↓</option>
-                  <option value="rating-low">Rating ↑</option>
-                </select>
-              </form>
+              {/* Sort select */}
+              <ReviewSortSelect
+                defaultValue={sortMode}
+                staffIdFilter={staffIdFilter ?? undefined}
+                filterMode={filterMode}
+              />
             </div>
 
             {/* Reviews list */}

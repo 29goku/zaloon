@@ -7,14 +7,16 @@ import { reorderCategories } from "@/app/actions/services";
 interface ServicesPageClientProps {
   categories: AccordionCategory[];
   allCategories: { id: string; name: string; icon: string | null }[];
-  fmt: (n: number) => string;
+  currency?: string;
 }
 
 export function ServicesPageClient({
   categories: initialCategories,
   allCategories,
-  fmt,
+  currency = "USD",
 }: ServicesPageClientProps) {
+  const fmt = (n: number) =>
+    new Intl.NumberFormat("en", { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
   // Local order state for Up/Down reordering (persisted via reorderCategories)
   const [order, setOrder] = React.useState<string[]>(
     () => initialCategories.map((c) => c.id)

@@ -129,12 +129,18 @@ function AddPaymentForm({
 
 interface Props {
   invoice: InvoiceSummary;
-  fmt: (n: number) => string;
+  currency: string;
   onClose: () => void;
   onRefresh: () => void;
 }
 
-export function InvoiceDetailModal({ invoice, fmt, onClose, onRefresh }: Props) {
+export function InvoiceDetailModal({ invoice, currency, onClose, onRefresh }: Props) {
+  const fmt = (n: number) =>
+    new Intl.NumberFormat("en", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 0,
+    }).format(n);
   const [showAddPayment, setShowAddPayment] = useState(false);
   const [isVoiding, startVoidTransition] = useTransition();
   const [isMarkingPaid, startMarkPaidTransition] = useTransition();

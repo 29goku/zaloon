@@ -248,7 +248,7 @@ export default async function ServicesPage({
       </div>
 
       {activeTab === "analytics" ? (
-        <ServicesAnalyticsTab topServices={topServices} fmt={fmt} />
+        <ServicesAnalyticsTab topServices={topServices} currency={currency} />
       ) : normalizedCategories.length === 0 ? (
         <div className="text-center py-24">
           <Scissors className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
@@ -272,7 +272,7 @@ export default async function ServicesPage({
           <ServicesPageClient
             categories={orderedCategories as typeof normalizedCategories}
             allCategories={allCategoryStubs}
-            fmt={fmt}
+            currency={currency}
           />
         </div>
       )}

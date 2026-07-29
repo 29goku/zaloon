@@ -12,13 +12,15 @@ interface TopService {
 
 interface ServicesAnalyticsTabProps {
   topServices: TopService[];
-  fmt: (n: number) => string;
+  currency?: string;
 }
 
 export function ServicesAnalyticsTab({
   topServices,
-  fmt,
+  currency = "USD",
 }: ServicesAnalyticsTabProps) {
+  const fmt = (n: number) =>
+    new Intl.NumberFormat("en", { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
   if (topServices.length === 0) {
     return (
       <div className="text-center py-24">
