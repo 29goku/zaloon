@@ -75,6 +75,7 @@ model Invoice {
   giftCardAmount Float?
   couponCode     String?
   couponDiscount Float?
+  tip            Float            @default(0)
   status         String           @default("PAID")
   receiptPrefs   String?
   createdAt      DateTime         @default(now())
