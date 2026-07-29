@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Activity, ChevronDown, ChevronUp } from "lucide-react";
-import { relativeTime, activityLabel, activityLink, type ActivityItem } from "@/lib/activity-feed";
+import { relativeTime, activityLabel, activityLink, type ActivityItem } from "@/lib/activity-feed-utils";
 
 interface TodaySummaryWidgetProps {
   items: ActivityItem[];

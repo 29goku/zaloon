@@ -27,7 +27,7 @@ import { CustomizeDashboardButton } from "@/components/dashboard/customize-dashb
 import { BirthdaysWidget, type BirthdayClient } from "@/components/dashboard/birthdays-widget";
 import { TodaySummaryWidget } from "@/components/dashboard/today-summary-widget";
 import { useDashboardLayout } from "@/hooks/use-dashboard-layout";
-import type { ActivityItem as LibActivityItem } from "@/lib/activity-feed";
+import type { ActivityItem as LibActivityItem } from "@/lib/activity-feed-utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

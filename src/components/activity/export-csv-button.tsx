@@ -1,7 +1,7 @@
 "use client";
 
 import { Download } from "lucide-react";
-import type { ActivityItem } from "@/lib/activity-feed";
+import type { ActivityItem } from "@/lib/activity-feed-utils";
 
 interface ExportCsvButtonProps {
   items: ActivityItem[];

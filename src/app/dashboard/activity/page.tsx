@@ -1,13 +1,13 @@
 import { Activity, CalendarDays, UserCircle, DollarSign, Megaphone, Star } from "lucide-react";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { getRecentActivity } from "@/lib/activity-feed";
 import {
-  getRecentActivity,
   activityLabel,
   activityLink,
   relativeTime,
   type ActivityItem,
-} from "@/lib/activity-feed";
+} from "@/lib/activity-feed-utils";
 import { ExportCsvButton } from "@/components/activity/export-csv-button";
 
 export const dynamic = "force-dynamic";
