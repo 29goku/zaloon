@@ -15,7 +15,7 @@ export default auth(function middleware(req) {
       return Response.json({ error: "Missing X-API-Key header" }, { status: 401 });
     }
     const configuredKey = process.env.API_KEY;
-    if (configuredKey && apiKey !== configuredKey) {
+    if (apiKey !== configuredKey) {
       return Response.json({ error: "Invalid API key" }, { status: 401 });
     }
     return NextResponse.next();
