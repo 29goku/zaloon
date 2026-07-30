@@ -443,7 +443,7 @@ export function RebookModal({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       {trigger ? (
-        <DialogTrigger render={<span onClick={() => setOpen(true)} />}>
+        <DialogTrigger render={<button type="button" onClick={() => setOpen(true)} />}>
           {trigger}
         </DialogTrigger>
       ) : (

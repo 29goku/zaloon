@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { randomUUID } from "crypto";
+const randomUUID = () =>
+  typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2) + Date.now().toString(36);
 import type { IntakeField } from "@/app/actions/intake";
 import {
   Type,

@@ -2,15 +2,10 @@
 
 import { Star } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-export type LoyaltyTierName = "Bronze" | "Silver" | "Gold" | "Platinum";
-
-export function getLoyaltyTier(points: number): LoyaltyTierName {
-  if (points >= 5000) return "Platinum";
-  if (points >= 1500) return "Gold";
-  if (points >= 500) return "Silver";
-  return "Bronze";
-}
+import { getLoyaltyTier } from "@/lib/loyalty-utils";
+import type { LoyaltyTierName } from "@/lib/loyalty-utils";
+export type { LoyaltyTierName } from "@/lib/loyalty-utils";
+export { getLoyaltyTier } from "@/lib/loyalty-utils";
 
 const tierStyles: Record<
   LoyaltyTierName,

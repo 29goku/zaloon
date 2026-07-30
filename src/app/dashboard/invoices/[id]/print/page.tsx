@@ -2,6 +2,7 @@ import { getInvoice } from "@/app/actions/invoices";
 import { getTaxSettings } from "@/app/actions/settings";
 import { notFound } from "next/navigation";
 import { AutoPrint } from "./auto-print";
+import { PrintButton } from "./print-button";
 
 export const dynamic = "force-dynamic";
 
@@ -110,12 +111,7 @@ export default async function InvoicePrintPage({
           >
             Receipt View
           </a>
-          <button
-            onClick={() => window.print()}
-            className="text-sm px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors font-semibold"
-          >
-            Print Invoice
-          </button>
+          <PrintButton />
         </div>
       </div>
 

@@ -11,14 +11,20 @@ import {
   Star,
 } from "lucide-react";
 
+/** Force dynamic rendering — data must be fresh on every request. */
 export const dynamic = "force-dynamic";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+/** Returns the date portion of a Date as a "YYYY-MM-DD" string. */
 function toDateString(d: Date): string {
   return d.toISOString().split("T")[0];
 }
 
+/**
+ * Returns a currency formatter for `currency` (e.g. "USD").
+ * Whole-dollar formatting — no cents displayed.
+ */
 function makeFmt(currency: string) {
   return (n: number) =>
     new Intl.NumberFormat("en-US", {
@@ -29,6 +35,7 @@ function makeFmt(currency: string) {
     }).format(n);
 }
 
+/** Returns `num / den` as a whole-number percentage, or 0 when `den` is 0. */
 function pct(num: number, den: number): number {
   if (den === 0) return 0;
   return Math.round((num / den) * 100);
@@ -36,6 +43,10 @@ function pct(num: number, den: number): number {
 
 // ── Acquisition SVG bar chart ─────────────────────────────────────────────────
 
+/**
+ * SVG bar chart showing new-client counts for each of the last 6 calendar months.
+ * Renders inline so it inherits theme colors via `currentColor` / CSS variables.
+ */
 function AcquisitionChart({ data }: { data: { label: string; count: number }[] }) {
   const W = 600;
   const H = 200;
@@ -97,7 +108,7 @@ function AcquisitionChart({ data }: { data: { label: string; count: number }[] }
               fill="hsl(var(--primary))"
               fillOpacity={0.85}
             >
-              <title>{d.label}: {d.count} new clients</title>
+              <title>{`${d.label}: ${d.count} new clients`}</title>
             </rect>
             {/* Count label on top of bar */}
             {d.count > 0 && (
@@ -142,6 +153,10 @@ function AcquisitionChart({ data }: { data: { label: string; count: number }[] }
 
 // ── Birthday mini chart ───────────────────────────────────────────────────────
 
+/**
+ * Compact SVG bar chart showing how many clients have a birthday in each calendar month.
+ * `monthCounts` is a 12-element array indexed 0 (Jan) → 11 (Dec).
+ */
 function BirthdayChart({ monthCounts }: { monthCounts: number[] }) {
   const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const W = 340;
@@ -172,7 +187,7 @@ function BirthdayChart({ monthCounts }: { monthCounts: number[] }) {
               fill="hsl(var(--primary))"
               fillOpacity={0.6}
             >
-              <title>{MONTHS[i]}: {cnt} clients</title>
+              <title>{`${MONTHS[i]}: ${cnt} clients`}</title>
             </rect>
             <text
               x={x + barW / 2}
@@ -202,6 +217,20 @@ function BirthdayChart({ monthCounts }: { monthCounts: number[] }) {
 
 // ── page ──────────────────────────────────────────────────────────────────────
 
+/**
+ * Client Analytics dashboard page.
+ *
+ * Sections rendered:
+ *  1. KPI row — Active Clients, New This Month, Avg Visits/Client, Top Spender
+ *  2. Acquisition chart — new clients per month for the trailing 6 months
+ *  3. Retention metrics — 30 / 60 / 90-day return rates with colour-coded bars
+ *  4. Lifetime Value table — top-20 clients ranked by all-time paid spend
+ *  5. Birthday distribution — month histogram + age-group breakdown
+ *  6. Visit Frequency distribution — buckets based on all-time paid invoice count
+ *
+ * All data is fetched server-side via Prisma in a single `Promise.all` call.
+ * Currency formatting uses the salon's configured currency (defaults to "USD").
+ */
 export default async function ClientReportsPage({
   searchParams,
 }: {
@@ -219,6 +248,7 @@ export default async function ClientReportsPage({
   const now = new Date();
 
   // ── Build last-6-months buckets ──────────────────────────────────────────
+  // Each bucket covers a full calendar month: [YYYY-MM-01, YYYY-MM-last].
 
   const ABBREVS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const months: { label: string; start: string; end: string }[] = [];
@@ -233,6 +263,10 @@ export default async function ClientReportsPage({
   const todayStr = toDateString(now);
 
   // ── Data fetching ────────────────────────────────────────────────────────
+  // Three parallel queries:
+  //   allClients   — every client record (id, name, createdAt, birthday)
+  //   recentAppts  — appointments within the 6-month window (for retention + KPIs)
+  //   allInvoices  — all PAID invoices ever (for lifetime value + visit frequency)
 
   const [allClients, recentAppts, allInvoices] = await Promise.all([
     prisma.client.findMany({
@@ -260,7 +294,9 @@ export default async function ClientReportsPage({
   });
 
   // ── Retention metrics ────────────────────────────────────────────────────
-  // For a window W days: clients who had appts before W days ago AND within last W days / clients who had appts before W days ago
+  // Definition: clients who visited *before* the W-day cutoff AND *after* it,
+  // divided by all clients who visited before the cutoff.
+  // Uses recentAppts (last 6 months), so windows up to ~180 days are meaningful.
 
   function retentionRate(windowDays: number): number {
     const cutoffDate = new Date(now);
@@ -291,6 +327,8 @@ export default async function ClientReportsPage({
   const retention90 = retentionRate(90);
 
   // ── Client lifetime value ────────────────────────────────────────────────
+  // Aggregates all-time paid invoice totals per client into clientSpendMap,
+  // then sorts descending by total spend and keeps the top 20.
 
   const clientSpendMap = new Map<string, { total: number; visits: number }>();
   for (const inv of allInvoices) {
@@ -335,6 +373,8 @@ export default async function ClientReportsPage({
   const topSpender = lifetimeValues[0] ?? null;
 
   // ── Demographics ─────────────────────────────────────────────────────────
+  // Birthday distribution (month histogram) and age-group breakdown.
+  // Only clients with a birthday on file contribute to these counts.
 
   // Birthday month distribution (months 1-12)
   const birthdayMonthCounts = Array(12).fill(0) as number[];
@@ -359,6 +399,8 @@ export default async function ClientReportsPage({
   }
 
   // ── Visit frequency distribution ─────────────────────────────────────────
+  // Buckets clients by total paid-invoice count (proxy for all-time visits).
+  // Clients with no paid invoices are excluded — they won't appear in clientSpendMap.
 
   const visitFreqBuckets: { label: string; min: number; max: number; count: number }[] = [
     { label: "1 visit", min: 1, max: 1, count: 0 },
@@ -381,6 +423,7 @@ export default async function ClientReportsPage({
   const maxFreqCount = Math.max(...visitFreqBuckets.map((b) => b.count), 1);
 
   // ── Retention bar color helper ────────────────────────────────────────────
+  // ≥50% → green (healthy), 20–49% → amber (moderate), <20% → red (needs attention)
 
   function retentionColor(p: number): string {
     if (p >= 50) return "bg-emerald-500";

@@ -1,11 +1,9 @@
-/**
- * Standalone layout for the batch-print page.
- * Bypasses the dashboard shell so only the invoices are printed.
- */
+import { ThemeProvider } from "@/components/theme/theme-provider";
+
 export default function BatchPrintLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return <>{children}</>;
+  return <ThemeProvider>{children}</ThemeProvider>;
 }

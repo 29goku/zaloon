@@ -40,6 +40,21 @@ import {
   type ExpenseCategory,
 } from "@/app/actions/expenses-constants";
 
+// ── Legacy category migration ──────────────────────────────────────────────────
+const LEGACY_CATEGORY_MAP: Record<string, string> = {
+  RENT: "RENT_UTILITIES",
+  UTILITIES: "RENT_UTILITIES",
+  PRODUCTS: "PRODUCTS_SUPPLIES",
+  SUPPLIES: "PRODUCTS_SUPPLIES",
+  LINENS: "PRODUCTS_SUPPLIES",
+  Marketing: "MARKETING",
+  Equipment: "EQUIPMENT",
+};
+
+function normalizeCategory(raw: string): string {
+  return LEGACY_CATEGORY_MAP[raw] ?? raw;
+}
+
 // ── Form schema ────────────────────────────────────────────────────────────────
 
 const CATEGORY_VALUES = [
@@ -118,7 +133,7 @@ export function ExpenseFormDialog({ expense, trigger }: ExpenseFormDialogProps) 
     resolver: zodResolver(formSchema),
     defaultValues: isEdit
       ? {
-          category: expense.category as typeof EXPENSE_CATEGORIES[number],
+          category: normalizeCategory(expense.category) as typeof EXPENSE_CATEGORIES[number],
           subcategory: expense.subcategory ?? "",
           description: expense.description,
           amount: String(expense.amount),
@@ -147,6 +162,27 @@ export function ExpenseFormDialog({ expense, trigger }: ExpenseFormDialogProps) 
 
   const selectedCategory = watch("category");
   const isRecurring = watch("isRecurring");
+
+  // On open, ensure category is normalized (legacy DB values like "RENT" → "RENT_UTILITIES")
+  React.useEffect(() => {
+    if (open && isEdit && expense) {
+      const normalized = normalizeCategory(expense.category) as typeof EXPENSE_CATEGORIES[number];
+      // Use reset to replace all defaultValues so Base UI controlled Select picks up the change
+      reset({
+        category: normalized,
+        subcategory: expense.subcategory ?? "",
+        description: expense.description,
+        amount: String(expense.amount),
+        date: expense.date,
+        vendor: expense.vendor ?? "",
+        paymentMethod: (expense.paymentMethod as typeof PAYMENT_METHODS[number]) ?? "CASH",
+        isRecurring: expense.isRecurring,
+        recurringDay: expense.recurringDay ? String(expense.recurringDay) : "",
+        notes: expense.notes ?? "",
+        receipt: expense.receipt ?? "",
+      });
+    }
+  }, [open, isEdit, expense, reset]);
 
   // Reset subcategory when category changes
   React.useEffect(() => {
@@ -251,7 +287,9 @@ export function ExpenseFormDialog({ expense, trigger }: ExpenseFormDialogProps) 
                     onValueChange={(val) => field.onChange(val)}
                   >
                     <SelectTrigger className="w-full" aria-invalid={!!errors.category}>
-                      <SelectValue placeholder="Select…" />
+                      <SelectValue placeholder="Select…">
+                        {(val: string | null) => val ? (CATEGORY_LABELS[val as ExpenseCategory] ?? val) : null}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {EXPENSE_CATEGORIES.map((c) => (
@@ -369,7 +407,9 @@ export function ExpenseFormDialog({ expense, trigger }: ExpenseFormDialogProps) 
                     onValueChange={(val) => field.onChange(val)}
                   >
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select…" />
+                      <SelectValue placeholder="Select…">
+                        {(val: string | null) => val ? (PAYMENT_METHOD_LABELS[val as typeof PAYMENT_METHODS[number]] ?? val) : null}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {PAYMENT_METHODS.map((m) => (

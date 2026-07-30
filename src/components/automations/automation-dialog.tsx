@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   Dialog,
   DialogContent,
@@ -56,6 +57,7 @@ interface AutomationDialogProps {
 
 export function AutomationDialog({ rule, onSaved, children }: AutomationDialogProps) {
   const isEditing = Boolean(rule);
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
@@ -88,7 +90,11 @@ export function AutomationDialog({ rule, onSaved, children }: AutomationDialogPr
 
       if (result.success) {
         setOpen(false);
-        onSaved?.();
+        if (onSaved) {
+          onSaved();
+        } else {
+          router.refresh();
+        }
       } else {
         setError(result.error ?? "Failed to save rule");
       }
@@ -116,25 +122,18 @@ export function AutomationDialog({ rule, onSaved, children }: AutomationDialogPr
           {children}
         </span>
       ) : isEditing ? (
-        <DialogTrigger
-          render={
-            <button
-              className="rounded-lg p-2 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              aria-label="Edit rule"
-            />
-          }
+        <button
+          onClick={() => handleOpenChange(true)}
+          className="rounded-lg p-2 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          aria-label="Edit rule"
         >
           <Pencil className="w-4 h-4" />
-        </DialogTrigger>
+        </button>
       ) : (
-        <DialogTrigger
-          render={
-            <Button size="sm" className="gap-1.5" />
-          }
-        >
+        <Button size="sm" className="gap-1.5" onClick={() => handleOpenChange(true)}>
           <Plus className="w-3.5 h-3.5" />
           New Rule
-        </DialogTrigger>
+        </Button>
       )}
 
       <DialogContent className="max-w-lg">

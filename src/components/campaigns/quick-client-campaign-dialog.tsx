@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { createCampaignAndSend } from "@/app/actions/campaigns";
+import { toast } from "@/components/ui/sonner";
 
 interface QuickClientCampaignDialogProps {
   open: boolean;
@@ -70,6 +71,7 @@ export function QuickClientCampaignDialog({
         return;
       }
 
+      toast.success(`Campaign sent to ${clientCount} client${clientCount !== 1 ? "s" : ""}!`);
       router.refresh();
       handleClose();
     } finally {

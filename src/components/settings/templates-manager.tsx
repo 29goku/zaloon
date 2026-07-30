@@ -532,9 +532,12 @@ export function TemplatesManager({ initialTemplates }: TemplatesManagerProps) {
     setEditorOpen(true);
   }
 
-  function handleSaved() {
+  async function handleSaved() {
     setEditorOpen(false);
     setEditingTemplate(undefined);
+    const { getTemplates } = await import("@/app/actions/templates");
+    const fresh = await getTemplates();
+    setTemplates(fresh);
     router.refresh();
   }
 

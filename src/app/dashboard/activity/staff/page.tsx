@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { Users, CalendarDays, DollarSign, XCircle, Activity } from "lucide-react";
 import Link from "next/link";
+import { StaffSelector } from "./staff-selector";
 
 export const dynamic = "force-dynamic";
 
@@ -181,29 +182,11 @@ export default async function StaffActivityPage({ searchParams }: PageProps) {
       {/* ─── Controls ───────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-4 items-center">
         {/* Staff selector */}
-        <div className="flex items-center gap-2">
-          <label htmlFor="staffSelect" className="text-sm font-medium text-foreground">
-            Staff:
-          </label>
-          <div className="relative">
-            <select
-              id="staffSelect"
-              defaultValue={selectedStaffId ?? ""}
-              onChange={(e) => {
-                // Since this is a server component we use navigation
-                const url = buildUrl({ staffId: e.target.value });
-                window.location.href = url;
-              }}
-              className="h-9 pl-3 pr-8 rounded-lg border border-input bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring appearance-none"
-            >
-              {allStaff.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+        <StaffSelector
+          allStaff={allStaff}
+          selectedStaffId={selectedStaffId ?? ""}
+          period={period !== "week" ? period : undefined}
+        />
 
         {/* Period filter */}
         <div className="flex items-center gap-1 p-1 rounded-xl bg-muted/60 w-fit">
