@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { DashboardShell } from "./dashboard-shell";
 import { getBranches } from "@/app/actions/branches";
 
+export const dynamic = "force-dynamic";
+
 export default async function DashboardLayout({
   children,
 }: {

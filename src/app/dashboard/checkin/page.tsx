@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { CheckInBoardClient } from "./check-in-board-client";
 
-export const revalidate = 30;
+export const dynamic = "force-dynamic";
 
 export default async function CheckInBoardPage() {
   const today = new Date().toISOString().split("T")[0];
