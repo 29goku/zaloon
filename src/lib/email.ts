@@ -1,7 +1,5 @@
 import { Resend } from "resend";
 
-export const resend = new Resend(process.env.RESEND_API_KEY);
-
 export const FROM_EMAIL =
   process.env.RESEND_FROM_EMAIL ?? "noreply@zaloon.app";
 
@@ -10,10 +8,13 @@ export async function sendEmail(
   subject: string,
   html: string
 ): Promise<{ success: boolean; error?: string }> {
-  if (!process.env.RESEND_API_KEY) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
     console.warn("[sendEmail] RESEND_API_KEY is not set — skipping email delivery");
     return { success: false, error: "Email not configured" };
   }
+
+  const resend = new Resend(apiKey);
 
   try {
     const { error } = await resend.emails.send({

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getClientTier, getPointsToNextTier, LOYALTY_TIERS } from "@/lib/loyalty-tiers";
 import { ClientCancelButton } from "./cancel-button";
-import { verifyPortalToken } from "../lookup-action";
+import { verifyPortalToken } from "@/lib/portal-auth";
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 

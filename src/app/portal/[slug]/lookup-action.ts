@@ -15,26 +15,6 @@ function sign(clientId: string, expiresAt: number): string {
   return `${payload}:${hmac}`;
 }
 
-export function verifyPortalToken(token: string, clientId: string): boolean {
-  const parts = token.split(":");
-  if (parts.length !== 3) return false;
-  const [tokenClientId, expiresAtStr, providedHmac] = parts;
-  const expiresAt = Number(expiresAtStr);
-
-  if (tokenClientId !== clientId) return false;
-  if (Date.now() > expiresAt) return false;
-
-  const expected = sign(clientId, expiresAt);
-  const expectedHmac = expected.split(":")[2];
-  // Constant-time comparison to prevent timing attacks
-  if (providedHmac.length !== expectedHmac.length) return false;
-  let diff = 0;
-  for (let i = 0; i < providedHmac.length; i++) {
-    diff |= providedHmac.charCodeAt(i) ^ expectedHmac.charCodeAt(i);
-  }
-  return diff === 0;
-}
-
 export async function portalPhoneLookup(slug: string, phone: string) {
   const client = await findClientByPhone(phone);
   if (!client) {
