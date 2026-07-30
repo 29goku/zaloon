@@ -1292,3 +1292,34 @@ export async function updateBookingRules(
     return { success: false, error: "Failed to save booking rules" };
   }
 }
+
+// ── Notification preferences ───────────────────────────────────────────────
+
+export type NotificationPrefs = Record<string, boolean>;
+
+export async function getNotificationPrefs(): Promise<NotificationPrefs> {
+  const salon = await prisma.salon.findFirst({ select: { notificationPrefs: true } });
+  if (!salon?.notificationPrefs) return {};
+  try {
+    return JSON.parse(salon.notificationPrefs) as NotificationPrefs;
+  } catch {
+    return {};
+  }
+}
+
+export async function saveNotificationPrefs(
+  prefs: NotificationPrefs
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const salon = await prisma.salon.findFirst();
+    if (!salon) return { success: false, error: "No salon found" };
+    await prisma.salon.update({
+      where: { id: salon.id },
+      data: { notificationPrefs: JSON.stringify(prefs), updatedAt: new Date() },
+    });
+    return { success: true };
+  } catch (err) {
+    console.error("[saveNotificationPrefs]", err);
+    return { success: false, error: "Failed to save preferences" };
+  }
+}

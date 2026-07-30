@@ -9,6 +9,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import { InlineConfirm } from "@/components/ui/inline-confirm";
 import { Loader2, CalendarRange, Settings2, CheckCircle2, X } from "lucide-react";
 
 // ─── Generate 30-min increment time options ────────────────────────────────────
@@ -191,54 +192,30 @@ function ApplyToAllPopover() {
 
 function SetStandardWeekButton() {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
   const [success, setSuccess] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  function handleClick() {
-    if (
-      !confirm(
-        "Set standard week for ALL staff? (Mon–Fri 9:00–18:00, Sat 9:00–15:00, Sun off)\n\nThis will overwrite all existing shifts."
-      )
-    )
-      return;
-
-    setError(null);
-    setSuccess(false);
-    startTransition(async () => {
-      const result = await setStandardWeek();
-      if (result.success) {
+  return (
+    <InlineConfirm
+      message="Set standard week for ALL staff? (Mon–Fri 9:00–18:00, Sat 9:00–15:00, Sun off) — this will overwrite all existing shifts."
+      confirmLabel="Set standard week"
+      onConfirm={async () => {
+        const result = await setStandardWeek();
+        if (!result.success) throw new Error(result.error ?? "Failed to set standard week");
         setSuccess(true);
         router.refresh();
         setTimeout(() => setSuccess(false), 2000);
-      } else {
-        setError(result.error);
+      }}
+      trigger={
+        <Button variant="outline" size="sm" className="gap-2 text-xs h-8">
+          {success ? (
+            <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
+          ) : (
+            <Settings2 className="w-3.5 h-3.5" />
+          )}
+          {success ? "Standard week set!" : "Set standard week"}
+        </Button>
       }
-    });
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={handleClick}
-        disabled={isPending || success}
-        className="gap-2 text-xs h-8"
-      >
-        {isPending ? (
-          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        ) : success ? (
-          <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
-        ) : (
-          <Settings2 className="w-3.5 h-3.5" />
-        )}
-        {success ? "Standard week set!" : "Set standard week"}
-      </Button>
-      {error && (
-        <span className="text-xs text-destructive">{error}</span>
-      )}
-    </div>
+    />
   );
 }
 

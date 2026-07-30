@@ -12,6 +12,7 @@ import {
   deleteCampaign,
   updateCampaign,
 } from "@/app/actions/campaigns";
+import { InlineConfirm } from "@/components/ui/inline-confirm";
 
 // ── Edit form (DRAFT only) ─────────────────────────────────────────────────────
 
@@ -146,49 +147,25 @@ interface SendButtonsProps {
 
 export function CampaignSendButtons({ id, name, scheduledAt }: SendButtonsProps) {
   const router = useRouter();
-  const [sending, setSending] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-
-  async function handleSendNow() {
-    if (
-      !confirm(
-        `Send campaign "${name}" now? This will simulate delivery to all recipients.`
-      )
-    )
-      return;
-    setSending(true);
-    setError(null);
-    try {
-      const result = await launchCampaign(id);
-      if (!result.success) {
-        setError(result.error);
-      } else {
-        router.refresh();
-      }
-    } finally {
-      setSending(false);
-    }
-  }
 
   return (
     <div className="flex flex-wrap gap-3">
-      <Button
-        onClick={handleSendNow}
-        disabled={sending}
-        className="gap-2"
-      >
-        {sending ? (
-          <>
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Sending…
-          </>
-        ) : (
-          <>
+      <InlineConfirm
+        message={`Send campaign "${name}" now? This will simulate delivery to all recipients.`}
+        confirmLabel="Send Now"
+        confirmClassName="px-2.5 py-1 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60"
+        onConfirm={async () => {
+          const result = await launchCampaign(id);
+          if (!result.success) throw new Error(result.error ?? "Failed to send");
+          router.refresh();
+        }}
+        trigger={
+          <Button className="gap-2">
             <Send className="w-4 h-4" />
             Send Now
-          </>
-        )}
-      </Button>
+          </Button>
+        }
+      />
 
       {scheduledAt && (
         <div className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-muted/40 text-sm text-muted-foreground">
@@ -203,8 +180,6 @@ export function CampaignSendButtons({ id, name, scheduledAt }: SendButtonsProps)
           })}
         </div>
       )}
-
-      {error && <p className="text-xs text-destructive mt-1 w-full">{error}</p>}
     </div>
   );
 }
@@ -218,47 +193,22 @@ interface DeleteButtonProps {
 
 export function CampaignDeleteButton({ id, name }: DeleteButtonProps) {
   const router = useRouter();
-  const [deleting, setDeleting] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-
-  async function handleDelete() {
-    if (!confirm(`Delete campaign "${name}"? This cannot be undone.`)) return;
-    setDeleting(true);
-    setError(null);
-    try {
-      const result = await deleteCampaign(id);
-      if (!result.success) {
-        setError(result.error);
-        setDeleting(false);
-      } else {
-        router.push("/dashboard/campaigns");
-      }
-    } catch {
-      setDeleting(false);
-    }
-  }
 
   return (
-    <div className="space-y-2">
-      <Button
-        variant="destructive"
-        onClick={handleDelete}
-        disabled={deleting}
-        className="gap-2"
-      >
-        {deleting ? (
-          <>
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Deleting…
-          </>
-        ) : (
-          <>
-            <Trash2 className="w-4 h-4" />
-            Delete Campaign
-          </>
-        )}
-      </Button>
-      {error && <p className="text-xs text-destructive">{error}</p>}
-    </div>
+    <InlineConfirm
+      message={`Delete campaign "${name}"? This cannot be undone.`}
+      confirmLabel="Delete"
+      onConfirm={async () => {
+        const result = await deleteCampaign(id);
+        if (!result.success) throw new Error(result.error ?? "Failed to delete");
+        router.push("/dashboard/campaigns");
+      }}
+      trigger={
+        <Button variant="destructive" className="gap-2">
+          <Trash2 className="w-4 h-4" />
+          Delete Campaign
+        </Button>
+      }
+    />
   );
 }

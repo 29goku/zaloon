@@ -170,7 +170,7 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
     ? (rawTab as TabKey)
     : "all";
   // template prefill is handled client-side via the dialog; we just pass it through
-  const templateMessage = sp.template ? decodeURIComponent(sp.template) : undefined;
+  const templateMessage = sp.template ? (() => { try { return decodeURIComponent(sp.template!); } catch { return sp.template; } })() : undefined;
 
   const salon = await prisma.salon.findFirst();
   if (!salon) {

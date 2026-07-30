@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { InlineConfirm } from "@/components/ui/inline-confirm";
 import {
   MessageSquare,
   Phone,
@@ -363,18 +364,10 @@ interface TemplateCardProps {
 }
 
 function TemplateCard({ template, onEdit, onDelete, onUse }: TemplateCardProps) {
-  const [deleting, setDeleting] = React.useState(false);
   const preview =
     template.body.length > 100
       ? template.body.slice(0, 100) + "…"
       : template.body;
-
-  async function handleDelete() {
-    if (!confirm(`Delete "${template.name}"?`)) return;
-    setDeleting(true);
-    await onDelete(template.id);
-    setDeleting(false);
-  }
 
   return (
     <div className="rounded-2xl border border-border bg-card p-5 flex flex-col gap-3 hover:border-primary/40 transition-colors group">
@@ -450,19 +443,19 @@ function TemplateCard({ template, onEdit, onDelete, onUse }: TemplateCardProps) 
           <Pencil className="w-3.5 h-3.5" />
         </button>
         {!template.isDefault && (
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={deleting}
-            className="inline-flex items-center justify-center rounded-lg border border-border bg-transparent px-2.5 py-1.5 text-xs text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-colors disabled:opacity-50"
-            aria-label="Delete template"
-          >
-            {deleting ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Trash2 className="w-3.5 h-3.5" />
-            )}
-          </button>
+          <InlineConfirm
+            message={`Delete "${template.name}"?`}
+            onConfirm={async () => { await onDelete(template.id); }}
+            trigger={
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-lg border border-border bg-transparent px-2.5 py-1.5 text-xs text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-colors"
+                aria-label="Delete template"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            }
+          />
         )}
       </div>
     </div>

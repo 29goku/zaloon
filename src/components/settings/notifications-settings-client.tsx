@@ -5,76 +5,88 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { Bell, MessageSquare, Star, DollarSign } from "lucide-react";
+import { saveNotificationPrefs, type NotificationPrefs } from "@/app/actions/settings";
 
 type NotificationItem = {
   id: string;
   icon: React.ElementType;
   label: string;
   description: string;
-  enabled: boolean;
+  defaultEnabled: boolean;
 };
 
-const INITIAL: NotificationItem[] = [
+const ITEMS: NotificationItem[] = [
   {
     id: "appt_reminders",
     icon: Bell,
     label: "Appointment Reminders",
     description: "Send clients a reminder 24 hours before their appointment",
-    enabled: true,
+    defaultEnabled: true,
   },
   {
     id: "appt_confirmations",
     icon: MessageSquare,
     label: "Booking Confirmations",
     description: "Notify clients immediately when a booking is confirmed",
-    enabled: true,
+    defaultEnabled: true,
   },
   {
     id: "staff_notifications",
     icon: Bell,
     label: "Staff Notifications",
     description: "Notify staff when assigned to new appointments",
-    enabled: false,
+    defaultEnabled: false,
   },
   {
     id: "payment_receipts",
     icon: DollarSign,
     label: "Payment Receipts",
     description: "Send payment receipts to clients after checkout",
-    enabled: true,
+    defaultEnabled: true,
   },
   {
     id: "review_requests",
     icon: Star,
     label: "Review Requests",
     description: "Ask clients to leave a review 2 hours after their appointment",
-    enabled: false,
+    defaultEnabled: false,
   },
   {
     id: "cancellation_alerts",
     icon: Bell,
     label: "Cancellation Alerts",
     description: "Alert staff when a client cancels an appointment",
-    enabled: true,
+    defaultEnabled: true,
   },
 ];
 
-export function NotificationsSettingsClient() {
-  const [items, setItems] = useState<NotificationItem[]>(INITIAL);
+interface Props {
+  savedPrefs: NotificationPrefs;
+}
+
+export function NotificationsSettingsClient({ savedPrefs }: Props) {
+  const [enabled, setEnabled] = useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {};
+    for (const item of ITEMS) {
+      init[item.id] = item.id in savedPrefs ? savedPrefs[item.id] : item.defaultEnabled;
+    }
+    return init;
+  });
   const [saving, setSaving] = useState(false);
 
   function toggle(id: string) {
-    setItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, enabled: !item.enabled } : item))
-    );
+    setEnabled((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
   async function handleSave() {
     setSaving(true);
-    // Mock save — configuration persistence coming soon
-    await new Promise((r) => setTimeout(r, 600));
+    const result = await saveNotificationPrefs(enabled);
     setSaving(false);
-    toast.success("Preferences saved", "Notification settings updated.");
+    if (result.success) {
+      toast.success("Preferences saved", "Notification settings updated.");
+    } else {
+      toast.error("Save failed", result.error ?? "Please try again.");
+    }
   }
 
   return (
@@ -88,8 +100,9 @@ export function NotificationsSettingsClient() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {items.map((item) => {
+            {ITEMS.map((item) => {
               const Icon = item.icon;
+              const isEnabled = enabled[item.id] ?? item.defaultEnabled;
               return (
                 <div
                   key={item.id}
@@ -109,16 +122,16 @@ export function NotificationsSettingsClient() {
                   <button
                     type="button"
                     role="switch"
-                    aria-checked={item.enabled}
+                    aria-checked={isEnabled}
                     onClick={() => toggle(item.id)}
                     aria-label={`Toggle ${item.label}`}
                     className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary mt-0.5 ${
-                      item.enabled ? "bg-primary" : "bg-secondary"
+                      isEnabled ? "bg-primary" : "bg-secondary"
                     }`}
                   >
                     <span
                       className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 mt-0.5 ${
-                        item.enabled ? "translate-x-4" : "translate-x-0.5"
+                        isEnabled ? "translate-x-4" : "translate-x-0.5"
                       }`}
                     />
                   </button>
@@ -128,10 +141,6 @@ export function NotificationsSettingsClient() {
           </div>
         </CardContent>
       </Card>
-
-      <p className="text-xs text-muted-foreground">
-        Channel configuration (SMS, email, push) coming soon.
-      </p>
 
       <div className="pb-8">
         <Button

@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { updatePlan } from "@/app/actions/memberships";
+import { InlineConfirm } from "@/components/ui/inline-confirm";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -232,26 +233,25 @@ import { cancelMembership } from "@/app/actions/memberships";
 
 export function CancelMembershipButton({ id }: { id: string }) {
   const router = useRouter();
-  const [pending, setPending] = React.useState(false);
-
-  async function handleCancel() {
-    if (!confirm("Cancel this membership? This cannot be undone.")) return;
-    setPending(true);
-    await cancelMembership(id);
-    router.refresh();
-    setPending(false);
-  }
 
   return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      aria-label="Cancel membership"
-      disabled={pending}
-      onClick={handleCancel}
-      className="text-destructive hover:text-destructive hover:bg-destructive/10"
-    >
-      {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
-    </Button>
+    <InlineConfirm
+      message="Cancel this membership? This cannot be undone."
+      confirmLabel="Cancel membership"
+      onConfirm={async () => {
+        await cancelMembership(id);
+        router.refresh();
+      }}
+      trigger={
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Cancel membership"
+          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+        >
+          <X className="w-4 h-4" />
+        </Button>
+      }
+    />
   );
 }

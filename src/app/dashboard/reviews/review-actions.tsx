@@ -1,11 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useTransition, useState } from "react";
+import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { deleteReview, updateReviewVisibility } from "@/app/actions/reviews";
 import { ReviewResponseDialog } from "@/components/reviews/review-response-dialog";
 import { Trash2, Copy, Check, MessageSquare, Eye, EyeOff } from "lucide-react";
+import { InlineConfirm } from "@/components/ui/inline-confirm";
 
 // ─── Delete button ────────────────────────────────────────────────────────────
 
@@ -15,27 +16,25 @@ interface DeleteReviewButtonProps {
 
 export function DeleteReviewButton({ id }: DeleteReviewButtonProps) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-
-  function handleDelete() {
-    if (!confirm("Delete this review? This cannot be undone.")) return;
-    startTransition(async () => {
-      await deleteReview(id);
-      router.refresh();
-    });
-  }
 
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-      disabled={isPending}
-      onClick={handleDelete}
-      title="Delete review"
-    >
-      <Trash2 className="w-3.5 h-3.5" />
-    </Button>
+    <InlineConfirm
+      message="Delete this review? This cannot be undone."
+      onConfirm={async () => {
+        await deleteReview(id);
+        router.refresh();
+      }}
+      trigger={
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+          title="Delete review"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </Button>
+      }
+    />
   );
 }
 
@@ -180,3 +179,4 @@ export function VisibilityToggle({ reviewId, isPublic }: VisibilityToggleProps) 
     </Button>
   );
 }
+

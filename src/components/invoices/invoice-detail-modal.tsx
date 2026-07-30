@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { voidInvoice, markInvoicePaid, addPartialPayment } from "@/app/actions/invoices";
 import type { InvoiceSummary, PartialPaymentSummary } from "@/app/dashboard/invoices/invoices-client";
+import { InlineConfirm } from "@/components/ui/inline-confirm";
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
@@ -142,8 +143,8 @@ export function InvoiceDetailModal({ invoice, currency, onClose, onRefresh }: Pr
       minimumFractionDigits: 0,
     }).format(n);
   const [showAddPayment, setShowAddPayment] = useState(false);
-  const [isVoiding, startVoidTransition] = useTransition();
   const [isMarkingPaid, startMarkPaidTransition] = useTransition();
+  const [markPaidError, setMarkPaidError] = useState<string | null>(null);
 
   const isVoid = invoice.status === "VOID";
   const isPaid = invoice.status === "PAID";
@@ -153,27 +154,15 @@ export function InvoiceDetailModal({ invoice, currency, onClose, onRefresh }: Pr
 
   const statusClass = STATUS_STYLES[invoice.status] ?? "bg-secondary text-muted-foreground";
 
-  function handleVoid() {
-    if (!confirm("Void this invoice? This cannot be undone.")) return;
-    startVoidTransition(async () => {
-      const res = await voidInvoice(invoice.id);
-      if (res.success) {
-        onRefresh();
-        onClose();
-      } else {
-        alert(res.error ?? "Failed to void invoice");
-      }
-    });
-  }
-
   function handleMarkPaid() {
+    setMarkPaidError(null);
     startMarkPaidTransition(async () => {
       const res = await markInvoicePaid(invoice.id, invoice.paymentMethod);
       if (res.success) {
         onRefresh();
         onClose();
       } else {
-        alert(res.error ?? "Failed to mark as paid");
+        setMarkPaidError(res.error ?? "Failed to mark as paid");
       }
     });
   }
@@ -397,15 +386,25 @@ export function InvoiceDetailModal({ invoice, currency, onClose, onRefresh }: Pr
 
             {/* Void invoice */}
             {!isVoid && (
-              <button
-                type="button"
-                onClick={handleVoid}
-                disabled={isVoiding}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-[#F41666]/50 text-[#F41666] hover:bg-[#F41666]/10 transition-colors disabled:opacity-50"
-              >
-                <Ban className="w-3.5 h-3.5" />
-                {isVoiding ? "Voiding…" : "Void"}
-              </button>
+              <InlineConfirm
+                message="Void this invoice? This cannot be undone."
+                confirmLabel="Void"
+                onConfirm={async () => {
+                  const res = await voidInvoice(invoice.id);
+                  if (!res.success) throw new Error(res.error ?? "Failed to void invoice");
+                  onRefresh();
+                  onClose();
+                }}
+                trigger={
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-[#F41666]/50 text-[#F41666] hover:bg-[#F41666]/10 transition-colors"
+                  >
+                    <Ban className="w-3.5 h-3.5" />
+                    Void
+                  </button>
+                }
+              />
             )}
           </div>
         </div>

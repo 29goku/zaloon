@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
+import { CancelBookingButton } from "@/components/book/cancel-booking-button";
 
 export const dynamic = "force-dynamic";
 
@@ -437,39 +438,11 @@ export default async function ConfirmationPage({ params }: PageProps) {
             </p>
             <div className="grid grid-cols-2 gap-2">
               {/* Cancel */}
-              <form
+              <CancelBookingButton
                 action={`/book/${slug}/confirmation/${appointmentId}/cancel`}
-                method="POST"
-              >
-                <button
-                  type="submit"
-                  className="flex items-center justify-center gap-1.5 w-full h-11 rounded-xl border-2 border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 hover:border-red-300 transition-colors"
-                  onClick={(e) => {
-                    if (
-                      !confirm(
-                        "Are you sure you want to cancel this appointment? This cannot be undone."
-                      )
-                    ) {
-                      e.preventDefault();
-                    }
-                  }}
-                >
-                  <svg
-                    className="w-4 h-4 shrink-0"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                  Cancel
-                </button>
-              </form>
+                label="Cancel"
+                className="flex items-center justify-center gap-1.5 w-full h-11 rounded-xl border-2 border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 hover:border-red-300 transition-colors"
+              />
 
               {/* Reschedule */}
               <Link

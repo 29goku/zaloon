@@ -37,6 +37,7 @@ export function IssueGiftCardDialog() {
   const [open, setOpen] = React.useState(false);
   const [generatedCode, setGeneratedCode] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
+  const [submitError, setSubmitError] = React.useState<string | null>(null);
 
   const {
     register,
@@ -48,6 +49,7 @@ export function IssueGiftCardDialog() {
   });
 
   async function onSubmit(values: FormValues) {
+    setSubmitError(null);
     const result = await issueGiftCard({
       initialValue: Number(values.initialValue),
       purchasedBy: values.purchasedBy || undefined,
@@ -56,8 +58,7 @@ export function IssueGiftCardDialog() {
     });
 
     if (!result.success) {
-      // Surface error inline — could use toast if available
-      alert(result.error);
+      setSubmitError(result.error ?? "Failed to issue gift card");
       return;
     }
 
@@ -195,6 +196,10 @@ export function IssueGiftCardDialog() {
                 />
               </div>
             </div>
+
+            {submitError && (
+              <p className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">{submitError}</p>
+            )}
 
             <DialogFooter showCloseButton>
               <Button type="submit" disabled={isSubmitting}>

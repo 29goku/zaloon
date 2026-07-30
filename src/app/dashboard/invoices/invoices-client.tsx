@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { voidInvoices, markInvoicePaid } from "@/app/actions/invoices";
 import { InvoiceDetailModal } from "@/components/invoices/invoice-detail-modal";
+import { InlineConfirm } from "@/components/ui/inline-confirm";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -321,6 +322,7 @@ export function InvoicesClient({ invoices, allInvoices, currency }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("createdAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceSummary | null>(null);
+  const [markPaidError, setMarkPaidError] = useState<string | null>(null);
 
   function handleSort(col: SortKey) {
     if (sortKey === col) {
@@ -362,30 +364,26 @@ export function InvoicesClient({ invoices, allInvoices, currency }: Props) {
   }
 
   function handleMarkPaid(id: string) {
+    setMarkPaidError(null);
     startTransition(async () => {
       const res = await markInvoicePaid(id, "CASH");
       if (res.success) {
         router.refresh();
       } else {
-        alert(res.error ?? "Failed to mark as paid");
+        setMarkPaidError(res.error ?? "Failed to mark as paid");
       }
     });
   }
 
-  function handleVoidSelected() {
+  async function handleVoidSelected() {
     if (selected.size === 0) return;
-    if (!confirm(`Void ${selected.size} selected invoice(s)? This cannot be undone.`)) return;
     setVoidingBatch(true);
-    startTransition(async () => {
-      const res = await voidInvoices(Array.from(selected));
-      setVoidingBatch(false);
-      if (res.success) {
-        setSelected(new Set());
-        router.refresh();
-      } else {
-        alert(res.error ?? "Failed to void invoices");
-      }
-    });
+    const res = await voidInvoices(Array.from(selected));
+    setVoidingBatch(false);
+    if (res.success) {
+      setSelected(new Set());
+      router.refresh();
+    }
   }
 
   function handleExportFiltered() {
@@ -477,19 +475,28 @@ export function InvoicesClient({ invoices, allInvoices, currency }: Props) {
         <div className="space-y-3">
           {/* Batch action bar */}
           {selected.size > 0 && (
-            <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-primary/10 border border-primary/30">
+            <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-primary/10 border border-primary/30 flex-wrap">
               <span className="text-sm font-medium text-primary">
                 {selected.size} selected
               </span>
-              <button
-                type="button"
-                onClick={handleVoidSelected}
-                disabled={voidingBatch}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#F41666]/10 text-[#F41666] hover:bg-[#F41666]/20 transition-colors disabled:opacity-50"
-              >
-                <Ban className="w-3.5 h-3.5" />
-                {voidingBatch ? "Voiding…" : "Void selected"}
-              </button>
+              {markPaidError && (
+                <span className="text-xs text-destructive">{markPaidError}</span>
+              )}
+              <InlineConfirm
+                message={`Void ${selected.size} selected invoice(s)? This cannot be undone.`}
+                confirmLabel="Void"
+                onConfirm={handleVoidSelected}
+                trigger={
+                  <button
+                    type="button"
+                    disabled={voidingBatch}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#F41666]/10 text-[#F41666] hover:bg-[#F41666]/20 transition-colors disabled:opacity-50"
+                  >
+                    <Ban className="w-3.5 h-3.5" />
+                    {voidingBatch ? "Voiding…" : "Void selected"}
+                  </button>
+                }
+              />
               <button
                 type="button"
                 onClick={handleExportSelected}

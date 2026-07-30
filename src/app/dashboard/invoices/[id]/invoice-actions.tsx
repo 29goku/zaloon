@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Ban, Copy, Printer } from "lucide-react";
 import { voidInvoice, createInvoice } from "@/app/actions/invoices";
+import { InlineConfirm } from "@/components/ui/inline-confirm";
 
 interface Props {
   invoiceId: string;
@@ -20,30 +21,15 @@ interface Props {
 
 export function InvoiceActions({ invoiceId, status, duplicateData }: Props) {
   const router = useRouter();
-  const [voiding, startVoid] = useTransition();
   const [duplicating, startDuplicate] = useTransition();
 
   const isVoid = status === "VOID";
-
-  function handleVoid() {
-    if (!confirm("Are you sure you want to void this invoice? This cannot be undone.")) return;
-    startVoid(async () => {
-      const result = await voidInvoice(invoiceId);
-      if (result.success) {
-        router.refresh();
-      } else {
-        alert(result.error ?? "Failed to void invoice.");
-      }
-    });
-  }
 
   function handleDuplicate() {
     startDuplicate(async () => {
       const result = await createInvoice(duplicateData);
       if (result.success) {
         router.push(`/dashboard/invoices/${result.id}`);
-      } else {
-        alert(result.error ?? "Failed to duplicate invoice.");
       }
     });
   }
@@ -84,14 +70,23 @@ export function InvoiceActions({ invoiceId, status, duplicateData }: Props) {
 
       {/* Void */}
       {!isVoid && (
-        <button
-          onClick={handleVoid}
-          disabled={voiding}
-          className="flex items-center gap-2 border border-[#F41666]/50 text-[#F41666] px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#F41666]/10 transition-colors shadow-sm disabled:opacity-50"
-        >
-          <Ban className="w-4 h-4" />
-          {voiding ? "Voiding…" : "Void Invoice"}
-        </button>
+        <InlineConfirm
+          message="Void this invoice? This cannot be undone."
+          confirmLabel="Void"
+          onConfirm={async () => {
+            const result = await voidInvoice(invoiceId);
+            if (!result.success) throw new Error(result.error ?? "Failed to void invoice.");
+            router.refresh();
+          }}
+          trigger={
+            <button
+              className="flex items-center gap-2 border border-[#F41666]/50 text-[#F41666] px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#F41666]/10 transition-colors shadow-sm"
+            >
+              <Ban className="w-4 h-4" />
+              Void Invoice
+            </button>
+          }
+        />
       )}
     </div>
   );

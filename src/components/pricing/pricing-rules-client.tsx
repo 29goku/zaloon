@@ -19,6 +19,7 @@ import {
   type PricingRule,
 } from "@/app/actions/pricing-rules";
 import { RuleWizard } from "./rule-wizard";
+import { InlineConfirm } from "@/components/ui/inline-confirm";
 
 interface Service {
   id: string;
@@ -133,7 +134,6 @@ export function PricingRulesClient({
   }
 
   function handleDelete(id: string) {
-    if (!confirm("Delete this pricing rule?")) return;
     startDeleteTransition(async () => {
       await deletePricingRule(id);
       router.refresh();
@@ -327,14 +327,19 @@ function RuleCard({
         >
           <Pencil className="w-3.5 h-3.5" />
         </button>
-        <button
-          type="button"
-          onClick={() => onDelete(rule.id)}
-          disabled={deleting}
-          className="w-7 h-7 rounded-lg hover:bg-red-500/10 flex items-center justify-center text-muted-foreground hover:text-red-400 transition-colors disabled:opacity-40"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        <InlineConfirm
+          message="Delete this pricing rule?"
+          onConfirm={() => onDelete(rule.id)}
+          trigger={
+            <button
+              type="button"
+              disabled={deleting}
+              className="w-7 h-7 rounded-lg hover:bg-red-500/10 flex items-center justify-center text-muted-foreground hover:text-red-400 transition-colors disabled:opacity-40"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          }
+        />
       </div>
     </div>
   );

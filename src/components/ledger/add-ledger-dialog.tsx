@@ -45,6 +45,7 @@ export function AddLedgerDialog({ clients }: AddLedgerDialogProps) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState("");
   const [isPending, startTransition] = React.useTransition();
+  const [submitError, setSubmitError] = React.useState<string | null>(null);
 
   const {
     register,
@@ -80,6 +81,7 @@ export function AddLedgerDialog({ clients }: AddLedgerDialogProps) {
   }
 
   async function onSubmit(values: FormValues) {
+    setSubmitError(null);
     startTransition(async () => {
       const result = await createLedgerEntry({
         clientId: values.clientId,
@@ -94,8 +96,7 @@ export function AddLedgerDialog({ clients }: AddLedgerDialogProps) {
         setSearch("");
         router.refresh();
       } else {
-        // Surface error — could use toast here
-        alert(result.error);
+        setSubmitError(result.error ?? "Failed to add entry");
       }
     });
   }
@@ -218,6 +219,10 @@ export function AddLedgerDialog({ clients }: AddLedgerDialogProps) {
               {...register("note")}
             />
           </div>
+
+          {submitError && (
+            <p className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">{submitError}</p>
+          )}
 
           <DialogFooter showCloseButton>
             <Button type="submit" disabled={isPending} className="min-w-24">

@@ -19,8 +19,11 @@ export function InvoiceNotes({ invoiceId, initialInternalNotes, initialClientNot
   const [savingClient, startSavingClient] = useTransition();
   const [internalSaved, setInternalSaved] = useState(false);
   const [clientSaved, setClientSaved] = useState(false);
+  const [internalError, setInternalError] = useState<string | null>(null);
+  const [clientError, setClientError] = useState<string | null>(null);
 
   function saveInternal() {
+    setInternalError(null);
     startSavingInternal(async () => {
       const res = await addInvoiceNote(invoiceId, internalNotes, true);
       if (res.success) {
@@ -28,12 +31,13 @@ export function InvoiceNotes({ invoiceId, initialInternalNotes, initialClientNot
         setTimeout(() => setInternalSaved(false), 2000);
         router.refresh();
       } else {
-        alert(res.error ?? "Failed to save note");
+        setInternalError(res.error ?? "Failed to save note");
       }
     });
   }
 
   function saveClient() {
+    setClientError(null);
     startSavingClient(async () => {
       const res = await addInvoiceNote(invoiceId, clientNotes, false);
       if (res.success) {
@@ -41,7 +45,7 @@ export function InvoiceNotes({ invoiceId, initialInternalNotes, initialClientNot
         setTimeout(() => setClientSaved(false), 2000);
         router.refresh();
       } else {
-        alert(res.error ?? "Failed to save note");
+        setClientError(res.error ?? "Failed to save note");
       }
     });
   }
@@ -61,6 +65,9 @@ export function InvoiceNotes({ invoiceId, initialInternalNotes, initialClientNot
           value={internalNotes}
           onChange={(e) => setInternalNotes(e.target.value)}
         />
+        {internalError && (
+          <p className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">{internalError}</p>
+        )}
         <div className="flex items-center justify-end gap-2">
           {internalSaved && (
             <span className="text-xs text-primary">Saved!</span>
@@ -90,6 +97,9 @@ export function InvoiceNotes({ invoiceId, initialInternalNotes, initialClientNot
           value={clientNotes}
           onChange={(e) => setClientNotes(e.target.value)}
         />
+        {clientError && (
+          <p className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">{clientError}</p>
+        )}
         <div className="flex items-center justify-end gap-2">
           {clientSaved && (
             <span className="text-xs text-primary">Saved!</span>

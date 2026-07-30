@@ -1,8 +1,11 @@
 import { Bell, ArrowLeft, CalendarClock, ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { NotificationsSettingsClient } from "@/components/settings/notifications-settings-client";
+import { getNotificationPrefs } from "@/app/actions/settings";
 
-export default function NotificationsSettingsPage() {
+export default async function NotificationsSettingsPage() {
+  const savedPrefs = await getNotificationPrefs();
+
   return (
     <div className="p-8 max-w-2xl">
       <div className="mb-6">
@@ -22,7 +25,7 @@ export default function NotificationsSettingsPage() {
         </p>
       </div>
 
-      <NotificationsSettingsClient />
+      <NotificationsSettingsClient savedPrefs={savedPrefs} />
 
       {/* Link to advanced reminder scheduling */}
       <div className="mt-6 rounded-2xl border border-primary/20 bg-primary/5 p-5">

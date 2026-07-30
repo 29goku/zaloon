@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Zap, Plus, Pencil, Trash2, ChevronRight } from "lucide-react";
+import { InlineConfirm } from "@/components/ui/inline-confirm";
 import { RuleForm } from "./rule-form";
 import type { AutomationRule } from "@/app/actions/automations";
 import { deleteRule, toggleRule, createRule } from "@/app/actions/automations";
@@ -114,7 +115,6 @@ export function RulesList({ initialRules, initialTemplates = [] }: RulesListProp
   }
 
   function handleDelete(id: string) {
-    if (!confirm("Delete this automation rule?")) return;
     setDeletingId(id);
     startTransition(async () => {
       const result = await deleteRule(id);
@@ -305,14 +305,18 @@ export function RulesList({ initialRules, initialTemplates = [] }: RulesListProp
                   >
                     <Pencil className="w-4 h-4" />
                   </button>
-                  <button
-                    onClick={() => handleDelete(rule.id)}
-                    disabled={deletingId === rule.id}
-                    className="rounded-lg p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
-                    aria-label="Delete rule"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <InlineConfirm
+                    message="Delete this automation rule?"
+                    onConfirm={() => handleDelete(rule.id)}
+                    trigger={
+                      <button
+                        className="rounded-lg p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        aria-label="Delete rule"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    }
+                  />
                 </div>
               </div>
             )}
