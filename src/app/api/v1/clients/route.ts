@@ -4,6 +4,11 @@ import { type NextRequest } from "next/server";
 
 // GET /api/v1/clients?search=...&limit=20
 export async function GET(request: NextRequest) {
+  const apiKey = request.headers.get("x-api-key") ?? request.headers.get("authorization")?.replace("Bearer ", "");
+  if (process.env.API_SECRET_KEY && apiKey !== process.env.API_SECRET_KEY) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const { searchParams } = request.nextUrl;
     const search = searchParams.get("search") ?? "";
@@ -53,6 +58,11 @@ export async function GET(request: NextRequest) {
 // POST /api/v1/clients
 // Body: { name: string; phone?: string; email?: string; birthday?: string; notes?: string }
 export async function POST(request: NextRequest) {
+  const apiKey = request.headers.get("x-api-key") ?? request.headers.get("authorization")?.replace("Bearer ", "");
+  if (process.env.API_SECRET_KEY && apiKey !== process.env.API_SECRET_KEY) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const body = await request.json();
     const { name, phone, email, birthday, notes } = body as {

@@ -7,6 +7,11 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<Params> }
 ) {
+  const apiKey = _req.headers.get("x-api-key") ?? _req.headers.get("authorization")?.replace("Bearer ", "");
+  if (process.env.API_SECRET_KEY && apiKey !== process.env.API_SECRET_KEY) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { model } = await params;
 
   try {

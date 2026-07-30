@@ -1,25 +1,22 @@
 import "server-only";
 import { PrismaClient } from "@prisma/client";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import fs from "fs";
 import path from "path";
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
 function createPrismaClient() {
-  const sourcePath = path.resolve(process.cwd(), "prisma/dev.db");
-  let dbPath = sourcePath;
-
-  // On Vercel (read-only filesystem), copy the db to /tmp so writes work
-  if (process.env.VERCEL || process.env.NODE_ENV === "production") {
-    const tmpPath = "/tmp/dev.db";
-    if (!fs.existsSync(tmpPath)) {
-      fs.copyFileSync(sourcePath, tmpPath);
-    }
-    dbPath = tmpPath;
+  const pgUrl = process.env.DATABASE_POSTGRES_PRISMA_URL;
+  if (pgUrl) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { PrismaPg } = require("@prisma/adapter-pg");
+    const adapter = new PrismaPg({ connectionString: pgUrl });
+    return new PrismaClient({ adapter });
   }
-
-  const adapter = new PrismaBetterSqlite3({ url: `file:${dbPath}` });
+  const dbUrl = process.env.DATABASE_URL ?? "file:./prisma/dev.db";
+  const filePath = dbUrl.startsWith("file:") ? dbUrl.slice(5) : dbUrl;
+  const resolved = path.isAbsolute(filePath) ? filePath : path.resolve(process.cwd(), filePath);
+  const adapter = new PrismaBetterSqlite3({ url: `file:${resolved}` });
   return new PrismaClient({ adapter });
 }
 

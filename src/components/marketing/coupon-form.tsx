@@ -33,9 +33,9 @@ import { createCoupon, updateCoupon } from "@/app/actions/coupons";
 export function generateCouponCode(): string {
   // No confusable chars (0/O, 1/I/L)
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  return Array.from({ length: 8 }, () =>
-    chars[Math.floor(Math.random() * chars.length)]
-  ).join("");
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map(b => chars[b % chars.length]).join("");
 }
 
 // ── Schema ─────────────────────────────────────────────────────────────────────

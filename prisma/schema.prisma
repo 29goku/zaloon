@@ -24,6 +24,9 @@ model Appointment {
   Invoice            Invoice?
   Reminder           Reminder[]
   Review             Review?
+
+  @@index([salonId])
+  @@index([date])
 }
 
 model AppointmentService {
@@ -59,6 +62,8 @@ model Client {
   Waitlist         Waitlist[]
   Review           Review[]
   ClientMembership ClientMembership[]
+
+  @@index([salonId])
 }
 
 model Invoice {
@@ -89,6 +94,9 @@ model Invoice {
   Salon          Salon            @relation(fields: [salonId], references: [id])
   InvoiceItem    InvoiceItem[]
   PartialPayment PartialPayment[]
+
+  @@index([salonId])
+  @@index([clientId])
 }
 
 model PartialPayment {
@@ -133,6 +141,8 @@ model Reminder {
   createdAt     DateTime     @default(now())
   Appointment   Appointment? @relation(fields: [appointmentId], references: [id])
   Salon         Salon        @relation(fields: [salonId], references: [id])
+
+  @@index([salonId])
 }
 
 model Expense {
@@ -151,6 +161,8 @@ model Expense {
   notes         String?
   createdAt     DateTime @default(now())
   Salon         Salon    @relation(fields: [salonId], references: [id])
+
+  @@index([salonId])
 }
 
 model Salon {
@@ -171,7 +183,7 @@ model Salon {
   businessHours       String?
   notificationPrefs   String?
   createdAt       DateTime          @default(now())
-  updatedAt       DateTime
+  updatedAt       DateTime          @updatedAt
   Appointment     Appointment[]
   Client          Client[]
   Coupon          Coupon[]
@@ -211,6 +223,8 @@ model Service {
   Salon              Salon                @relation(fields: [salonId], references: [id])
   StaffService       StaffService[]
   Waitlist           Waitlist[]
+
+  @@index([salonId])
 }
 
 model ServiceCategory {
@@ -220,6 +234,8 @@ model ServiceCategory {
   icon    String?
   Service Service[]
   Salon   Salon     @relation(fields: [salonId], references: [id])
+
+  @@index([salonId])
 }
 
 model Shift {
@@ -248,6 +264,8 @@ model Staff {
   StaffService       StaffService[]
   TimeOff            TimeOff[]
   Waitlist           Waitlist[]
+
+  @@index([salonId])
 }
 
 model TimeOff {
@@ -285,6 +303,9 @@ model PayrollRecord {
   createdAt    DateTime  @default(now())
   Salon        Salon     @relation(fields: [salonId], references: [id])
   Staff        Staff     @relation(fields: [staffId], references: [id])
+
+  @@index([salonId])
+  @@index([staffId])
 }
 
 model User {
@@ -296,6 +317,9 @@ model User {
   role      String   @default("RECEPTIONIST")
   createdAt DateTime @default(now())
   Salon     Salon    @relation(fields: [salonId], references: [id])
+
+  @@index([salonId])
+  @@unique([salonId, email])
 }
 
 model Coupon {
@@ -311,6 +335,9 @@ model Coupon {
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
   Salon       Salon    @relation(fields: [salonId], references: [id])
+
+  @@index([salonId])
+  @@unique([salonId, code])
 }
 
 model GiftCard {
@@ -326,6 +353,8 @@ model GiftCard {
   createdAt           DateTime              @default(now())
   Salon               Salon                 @relation(fields: [salonId], references: [id])
   GiftCardTransaction GiftCardTransaction[]
+
+  @@index([salonId])
 }
 
 model GiftCardTransaction {
@@ -359,6 +388,8 @@ model Waitlist {
   Client          Client?   @relation(fields: [clientId], references: [id])
   Service         Service?  @relation(fields: [serviceId], references: [id])
   Staff           Staff?    @relation(fields: [staffId], references: [id])
+
+  @@index([salonId])
 }
 
 model MembershipPlan {
@@ -373,6 +404,8 @@ model MembershipPlan {
   createdAt        DateTime           @default(now())
   Salon            Salon              @relation(fields: [salonId], references: [id])
   ClientMembership ClientMembership[]
+
+  @@index([salonId])
 }
 
 model ClientMembership {
@@ -402,6 +435,8 @@ model Review {
   Client        Client?      @relation(fields: [clientId], references: [id], onDelete: SetNull)
   Staff         Staff?       @relation(fields: [staffId], references: [id], onDelete: SetNull)
   Appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+
+  @@index([salonId])
 }
 
 model Campaign {
@@ -422,6 +457,8 @@ model Campaign {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   Salon          Salon     @relation(fields: [salonId], references: [id])
+
+  @@index([salonId])
 }
 
 model InventoryItem {
@@ -440,6 +477,8 @@ model InventoryItem {
   updatedAt            DateTime               @updatedAt
   Salon                Salon                  @relation(fields: [salonId], references: [id])
   InventoryTransaction InventoryTransaction[]
+
+  @@index([salonId])
 }
 
 model InventoryTransaction {
@@ -463,4 +502,6 @@ model AutomationRule {
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   Salon           Salon    @relation(fields: [salonId], references: [id])
+
+  @@index([salonId])
 }

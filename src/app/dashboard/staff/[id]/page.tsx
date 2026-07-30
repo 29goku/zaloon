@@ -83,7 +83,9 @@ function StarRating({ rating }: { rating: number }) {
 
 export default async function StaffDetailPage({
   params,
-}: PageProps<"/dashboard/staff/[id]">) {
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const { id } = await params;
 
   // Date helpers

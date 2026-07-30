@@ -457,7 +457,7 @@ export default async function ServicesReportPage({
                       >
                         {/* Rank */}
                         <td className="px-4 py-3 text-muted-foreground font-mono text-xs">
-                          {svc.rank}
+                          {idx + 1}
                         </td>
 
                         {/* Name */}

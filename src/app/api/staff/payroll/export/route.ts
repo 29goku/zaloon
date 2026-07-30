@@ -21,6 +21,11 @@ function escapeCsvField(value: string | number | null | undefined): string {
 }
 
 export async function GET(request: NextRequest) {
+  const apiKey = request.headers.get("x-api-key") ?? request.headers.get("authorization")?.replace("Bearer ", "");
+  if (process.env.API_SECRET_KEY && apiKey !== process.env.API_SECRET_KEY) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const defaults = getDefaultRange();
   const from = searchParams.get("from") ?? defaults.from;

@@ -1,6 +1,6 @@
 "use server";
 
-import { randomUUID } from "crypto";
+import { randomUUID, randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 
 // ---------------------------------------------------------------------------
@@ -26,21 +26,16 @@ export interface GiftCardRow {
 
 function generateCode(): string {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let result = "GC-";
-  for (let i = 0; i < 6; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
+  const bytes = randomBytes(6);
+  const result = Array.from(bytes).map(b => chars[b % chars.length]).join("");
+  return "GC-" + result;
 }
 
 // Generates a 12-char public purchase code — no confusable chars (no 0/O/I/1)
 function generatePublicCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let result = "";
-  for (let i = 0; i < 12; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
+  const bytes = randomBytes(12);
+  return Array.from(bytes).map(b => chars[b % chars.length]).join("");
 }
 
 function isExpired(expiresAt: string | null): boolean {
