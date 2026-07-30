@@ -14,18 +14,11 @@ interface BranchSelectorProps {
 
 export function BranchSelector({ branches }: BranchSelectorProps) {
   const [open, setOpen] = useState(false);
-  const [activeId, setActiveId] = useState<string>(() => {
-    if (typeof window === "undefined") return branches[0]?.id ?? "";
-    return (
-      localStorage.getItem(STORAGE_KEY) ??
-      branches.find((b) => b.isMain)?.id ??
-      branches[0]?.id ??
-      ""
-    );
-  });
+  const defaultId = branches.find((b) => b.isMain)?.id ?? branches[0]?.id ?? "";
+  const [activeId, setActiveId] = useState<string>(defaultId);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Sync from storage on mount
+  // Sync from localStorage after mount (avoids SSR/client mismatch)
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
     const valid = stored && branches.some((b) => b.id === stored);

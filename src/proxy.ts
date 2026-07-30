@@ -5,7 +5,7 @@ import type { NextRequest } from "next/server";
 
 const { auth } = NextAuth(authConfig);
 
-export default auth((req: NextRequest & { auth: unknown }) => {
+export default auth(function middleware(req) {
   const { pathname } = req.nextUrl;
 
   // API v1 key check
@@ -22,7 +22,7 @@ export default auth((req: NextRequest & { auth: unknown }) => {
   }
 
   // Auth guard for dashboard
-  const isAuthenticated = !!(req as Parameters<typeof auth>[0] & { auth: unknown }).auth;
+  const isAuthenticated = !!(req as unknown as { auth: unknown }).auth;
   if (pathname.startsWith("/dashboard") && !isAuthenticated) {
     const loginUrl = new URL("/auth/login", req.url);
     loginUrl.searchParams.set("callbackUrl", req.url);

@@ -41,6 +41,10 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# prisma local dev database
+prisma/*.db
+prisma/*.db-journal
 /.playwright-mcp/
 /.idea/
 .env*.local
