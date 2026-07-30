@@ -13,7 +13,9 @@ import { searchClients } from "@/app/actions/search";
 import type { ServiceOption, RetailProductOption } from "@/app/dashboard/quick-pay/page";
 import type { CartItem, CreatedInvoice } from "@/app/actions/payments";
 import { StripePaymentForm } from "@/app/dashboard/quick-pay/stripe-payment-form";
-import { STRIPE_PUBLISHABLE_KEY } from "@/lib/stripe";
+// Use the NEXT_PUBLIC_ env var directly — do not import from @/lib/stripe here
+// as that module instantiates the server-side Stripe SDK
+const STRIPE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

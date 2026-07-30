@@ -8,7 +8,10 @@ import {
   useStripe,
   useElements,
 } from '@stripe/react-stripe-js'
-import { STRIPE_PUBLISHABLE_KEY } from '@/lib/stripe'
+// Access the publishable key directly from the NEXT_PUBLIC_ env var
+// (do not import server-only @/lib/stripe here — that module instantiates the
+// server-side Stripe SDK and must not run in the browser bundle)
+const STRIPE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 
 // ── Inner form (needs to be inside <Elements>) ────────────────────────────────
 
