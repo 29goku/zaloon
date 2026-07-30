@@ -164,7 +164,7 @@ export default async function StaffPayrollDetailPage({
   );
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto">
+    <div className="p-4 md:p-8">
       {/* Back + header */}
       <div className="flex items-start gap-4 mb-8">
         <Link

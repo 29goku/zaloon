@@ -17,8 +17,14 @@ const OPTIONS: ThemeOption[] = [
   { value: "system", label: "System", Icon: Monitor },
 ];
 
-export function ThemeToggle({ className }: { className?: string }) {
-  const { theme, setTheme, resolvedTheme } = useTheme();
+export function ThemeToggle({
+  className,
+  variant = "sidebar",
+}: {
+  className?: string;
+  variant?: "sidebar" | "header";
+}) {
+  const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -27,14 +33,10 @@ export function ThemeToggle({ className }: { className?: string }) {
     setMounted(true);
   }, []);
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return;
     function handleClick(e: MouseEvent) {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
       }
     }
@@ -42,7 +44,6 @@ export function ThemeToggle({ className }: { className?: string }) {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
-  // Close on Escape
   useEffect(() => {
     if (!open) return;
     function handleKey(e: KeyboardEvent) {
@@ -56,7 +57,8 @@ export function ThemeToggle({ className }: { className?: string }) {
     return (
       <div
         className={cn(
-          "h-9 w-24 rounded-full bg-sidebar-accent/40 animate-pulse",
+          "h-9 w-24 rounded-full animate-pulse",
+          variant === "sidebar" ? "bg-sidebar-accent/40" : "bg-muted/40",
           className
         )}
         aria-hidden="true"
@@ -66,6 +68,7 @@ export function ThemeToggle({ className }: { className?: string }) {
 
   const active = OPTIONS.find((o) => o.value === (theme ?? "system"))!;
   const ActiveIcon = active.Icon;
+  const isSidebar = variant === "sidebar";
 
   return (
     <div ref={containerRef} className={cn("relative", className)}>
@@ -75,17 +78,19 @@ export function ThemeToggle({ className }: { className?: string }) {
         aria-expanded={open}
         aria-label="Switch colour mode"
         className={cn(
-          "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-semibold",
-          "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-          "transition-colors duration-200 select-none"
+          "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-semibold transition-colors duration-200 select-none",
+          isSidebar
+            ? "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            : "text-muted-foreground hover:bg-muted hover:text-foreground"
         )}
       >
         <ActiveIcon className="w-[15px] h-[15px]" />
         <span className="hidden sm:inline">{active.label}</span>
+        {/* chevron points up in sidebar (dropdown opens up), down in header (opens down) */}
         <ChevronDown
           className={cn(
             "w-3 h-3 transition-transform duration-200",
-            open && "rotate-180"
+            isSidebar ? (open ? "rotate-180" : "") : (open ? "" : "rotate-180")
           )}
         />
       </button>
@@ -95,9 +100,13 @@ export function ThemeToggle({ className }: { className?: string }) {
           role="listbox"
           aria-label="Colour mode"
           className={cn(
-            "absolute bottom-full mb-2 right-0 z-50 min-w-[130px]",
-            "rounded-xl border border-sidebar-border bg-sidebar shadow-lg",
-            "overflow-hidden py-1"
+            "absolute right-0 z-50 min-w-[130px]",
+            "rounded-xl shadow-lg overflow-hidden py-1",
+            // sidebar: open upward; header: open downward
+            isSidebar ? "bottom-full mb-2" : "top-full mt-2",
+            isSidebar
+              ? "border border-sidebar-border bg-sidebar"
+              : "border border-border bg-popover text-popover-foreground"
           )}
         >
           {OPTIONS.map(({ value, label, Icon }) => {
@@ -113,15 +122,24 @@ export function ThemeToggle({ className }: { className?: string }) {
                 }}
                 className={cn(
                   "w-full flex items-center gap-2.5 px-3 py-2 text-sm font-medium transition-colors",
-                  isCurrent
-                    ? "text-sidebar-primary bg-sidebar-accent"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+                  isSidebar
+                    ? isCurrent
+                      ? "text-sidebar-primary bg-sidebar-accent"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+                    : isCurrent
+                      ? "text-primary bg-muted"
+                      : "text-popover-foreground hover:bg-muted/60"
                 )}
               >
                 <Icon className="w-4 h-4 flex-shrink-0" />
                 {label}
                 {isCurrent && (
-                  <span className="ml-auto w-1.5 h-1.5 rounded-full bg-sidebar-primary" />
+                  <span
+                    className={cn(
+                      "ml-auto w-1.5 h-1.5 rounded-full",
+                      isSidebar ? "bg-sidebar-primary" : "bg-primary"
+                    )}
+                  />
                 )}
               </button>
             );

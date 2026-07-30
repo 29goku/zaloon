@@ -592,7 +592,7 @@ export default function DataPage() {
   ];
 
   return (
-    <div className="p-8 max-w-3xl space-y-8">
+    <div className="p-4 md:p-8 max-w-3xl space-y-8">
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-foreground">Data &amp; Privacy</h1>

@@ -28,7 +28,7 @@ export default async function DigestSettingsPage() {
   }
 
   return (
-    <div className="p-8 max-w-3xl">
+    <div className="p-4 md:p-8 max-w-3xl">
       {/* Breadcrumb */}
       <div className="mb-6">
         <Link

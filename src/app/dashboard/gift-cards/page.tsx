@@ -33,7 +33,7 @@ export default async function GiftCardsPage() {
   const totalRedeemed = cards.filter((c) => c.status === "REDEEMED").length;
 
   return (
-    <div className="p-6 space-y-8 max-w-6xl mx-auto">
+    <div className="p-4 md:p-6 space-y-8">
       {/* Page header */}
       <div className="flex items-center justify-between gap-4">
         <div>

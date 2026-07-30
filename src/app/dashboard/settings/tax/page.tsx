@@ -9,7 +9,7 @@ export default async function TaxSettingsPage() {
   const taxSettings = await getTaxSettings();
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       {/* Breadcrumb */}
       <div className="mb-6">
         <Link

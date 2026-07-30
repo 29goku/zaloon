@@ -4,7 +4,7 @@ import { IntegrationsClient } from "@/components/settings/integrations-client";
 
 export default function IntegrationsPage() {
   return (
-    <div className="p-8 max-w-3xl">
+    <div className="p-4 md:p-8 max-w-3xl">
       <div className="mb-6">
         <Link
           href="/dashboard/settings"

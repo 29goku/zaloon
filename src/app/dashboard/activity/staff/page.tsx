@@ -158,7 +158,7 @@ export default async function StaffActivityPage({ searchParams }: PageProps) {
   ];
 
   return (
-    <div className="p-6 space-y-8 max-w-5xl mx-auto">
+    <div className="p-4 md:p-6 space-y-8">
       {/* ─── Header ─────────────────────────────────────────────────── */}
       <div className="flex items-start gap-4 flex-wrap justify-between">
         <div>

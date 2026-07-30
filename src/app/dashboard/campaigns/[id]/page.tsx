@@ -185,7 +185,7 @@ export default async function CampaignDetailPage({
   const isPaused = campaign.status === "PAUSED";
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto">
+    <div className="p-4 md:p-6 space-y-6 max-w-4xl mx-auto">
       {/* Back link */}
       <Link
         href="/dashboard/campaigns"

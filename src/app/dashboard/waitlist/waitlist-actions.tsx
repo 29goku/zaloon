@@ -190,7 +190,7 @@ function SlotFinderDialog({ waitlistId, entry, disabled }: SlotFinderDialogProps
         Find Slot
       </DialogTrigger>
 
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Find Available Slot</DialogTitle>
         </DialogHeader>

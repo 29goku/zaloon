@@ -12,7 +12,7 @@ export default async function BookingWidgetPage() {
 
   if (!salon?.slug) {
     return (
-      <div className="p-8 max-w-2xl">
+      <div className="p-4 md:p-8 max-w-2xl">
         <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
           <Code2 className="w-7 h-7 text-primary" />
           Booking Widget
@@ -29,7 +29,7 @@ export default async function BookingWidgetPage() {
   }
 
   return (
-    <div className="p-8 max-w-2xl">
+    <div className="p-4 md:p-8 max-w-2xl">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
           <Code2 className="w-7 h-7 text-primary" />

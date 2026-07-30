@@ -167,7 +167,7 @@ export default async function StaffTimeOffPage() {
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
 
   return (
-    <div className="p-6 md:p-8 max-w-6xl mx-auto">
+    <div className="p-6 md:p-8">
       {/* Back */}
       <div className="flex items-center gap-4 mb-6">
         <Link

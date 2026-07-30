@@ -20,7 +20,7 @@ export default async function ServiceBookingSettingsPage() {
   const settings = await getServiceBookingSettings();
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-4 md:p-8 max-w-4xl mx-auto">
       {/* Breadcrumb */}
       <div className="mb-6">
         <Link

@@ -9,7 +9,7 @@ export default async function BookingSettingsPage() {
   const rules = await getExtendedBookingRules();
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <div className="mb-6">
         <Link
           href="/dashboard/settings"

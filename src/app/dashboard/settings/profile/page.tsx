@@ -10,7 +10,7 @@ export default async function SalonProfilePage() {
   const salon = await prisma.salon.findFirst();
 
   return (
-    <div className="p-8 max-w-2xl">
+    <div className="p-4 md:p-8 max-w-2xl">
       <div className="mb-6">
         <Link
           href="/dashboard/settings"

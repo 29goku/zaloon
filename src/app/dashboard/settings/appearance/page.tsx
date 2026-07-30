@@ -175,7 +175,7 @@ export default function AppearancePage() {
 
   if (!mounted) {
     return (
-      <div className="p-8 max-w-2xl space-y-6 animate-pulse">
+      <div className="p-4 md:p-8 max-w-2xl space-y-6 animate-pulse">
         <div className="h-8 w-48 bg-muted rounded-lg" />
         <div className="h-4 w-72 bg-muted rounded" />
         <div className="h-40 bg-muted rounded-2xl" />
@@ -184,7 +184,7 @@ export default function AppearancePage() {
   }
 
   return (
-    <div className="p-8 max-w-2xl space-y-10">
+    <div className="p-4 md:p-8 max-w-2xl space-y-10">
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">

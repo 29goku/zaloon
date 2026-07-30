@@ -279,7 +279,7 @@ export default async function StaffDetailPage({
   const assignedIds = staff.StaffService.map((ss) => ss.serviceId);
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
+    <div className="p-4 md:p-8">
       {/* Back nav */}
       <Link
         href="/dashboard/staff"

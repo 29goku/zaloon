@@ -41,7 +41,7 @@ export default async function BrandingPage() {
     : {};
 
   return (
-    <div className="p-8 max-w-2xl">
+    <div className="p-4 md:p-8 max-w-2xl">
       <div className="mb-6">
         <Link
           href="/dashboard/settings"

@@ -130,7 +130,7 @@ export default async function StaffSchedulePage() {
   }
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto">
+    <div className="p-6 md:p-8">
       {/* Back link */}
       <div className="flex items-center gap-4 mb-6">
         <Link

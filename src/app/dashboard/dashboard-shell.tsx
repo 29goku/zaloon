@@ -99,20 +99,21 @@ export function DashboardShell({
               <SearchButton />
             </div>
 
-            {/* Branch selector — only shown when 2+ branches configured */}
-            <BranchSelector branches={branches} />
+            {/* Right-side controls pushed to the far edge */}
+            <div className="ml-auto flex items-center gap-2 lg:gap-3 flex-shrink-0">
+              {/* Branch selector — only shown when 2+ branches configured */}
+              <BranchSelector branches={branches} />
 
-            {/* Date — hidden on very small screens to give search room */}
-            <TodayDate />
+              {/* Date — hidden on very small screens */}
+              <TodayDate />
 
-            {/* Notification bell — always visible */}
-            <div className="flex-shrink-0">
+              {/* Notification bell — always visible */}
               <NotificationBell />
-            </div>
 
-            {/* Theme toggle — hidden on mobile (available in sidebar) */}
-            <div className="flex-shrink-0 hidden lg:block">
-              <ThemeToggle className="text-muted-foreground hover:bg-accent hover:text-accent-foreground" />
+              {/* Theme toggle — hidden on mobile */}
+              <div className="hidden lg:block">
+                <ThemeToggle variant="header" />
+              </div>
             </div>
           </header>
 

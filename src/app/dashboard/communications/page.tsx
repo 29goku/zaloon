@@ -91,7 +91,7 @@ export default async function CommunicationsPage() {
   const salon = await prisma.salon.findFirst({ select: { id: true } });
   if (!salon) {
     return (
-      <div className="p-8">
+      <div className="p-4 md:p-8">
         <p className="text-muted-foreground">No salon found.</p>
       </div>
     );

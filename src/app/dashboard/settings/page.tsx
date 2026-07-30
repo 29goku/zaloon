@@ -175,7 +175,7 @@ export default async function SettingsHubPage() {
   const intakeUrl = salon ? `/intake/${salon.slug}` : null;
 
   return (
-    <div className="p-8 max-w-4xl">
+    <div className="p-4 md:p-8 max-w-4xl">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground">Settings</h1>
         <p className="text-muted-foreground mt-1">

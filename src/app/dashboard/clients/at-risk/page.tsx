@@ -38,7 +38,7 @@ export default async function AtRiskPage() {
 
   if (!salon) {
     return (
-      <div className="p-8 text-muted-foreground">No salon data found.</div>
+      <div className="p-4 md:p-8 text-muted-foreground">No salon data found.</div>
     );
   }
 

@@ -945,7 +945,7 @@ export function NewAppointmentModal({
         New Appointment
       </DialogTrigger>
 
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New Appointment — {stepLabel}</DialogTitle>
         </DialogHeader>

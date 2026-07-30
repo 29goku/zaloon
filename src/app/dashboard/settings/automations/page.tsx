@@ -74,7 +74,7 @@ export default async function AutomationsPage() {
   const [rules, templates] = await Promise.all([getRules(), getTemplates()]);
 
   return (
-    <div className="p-8 max-w-4xl">
+    <div className="p-4 md:p-8 max-w-4xl">
       {/* Header */}
       <div className="mb-8">
         <Link

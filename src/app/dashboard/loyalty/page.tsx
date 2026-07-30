@@ -100,7 +100,7 @@ export default async function LoyaltyPage() {
   const maxTierCount = Math.max(...tierStats.map((t) => t.count), 1);
 
   return (
-    <div className="p-6 space-y-8 max-w-6xl mx-auto">
+    <div className="p-4 md:p-6 space-y-8">
       {/* Page header */}
       <div className="flex items-start justify-between gap-4">
         <div>

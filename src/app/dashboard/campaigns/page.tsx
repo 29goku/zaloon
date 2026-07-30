@@ -240,7 +240,7 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
   };
 
   return (
-    <div className="p-6 space-y-8 max-w-6xl mx-auto">
+    <div className="p-4 md:p-6 space-y-8">
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>

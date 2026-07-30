@@ -169,7 +169,7 @@ export default async function CouponsPage() {
   const hasAnyUsage = coupons.some((c) => c.usedCount > 0);
 
   return (
-    <div className="p-4 md:p-8 space-y-8 max-w-6xl mx-auto">
+    <div className="p-4 md:p-8 space-y-8">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>

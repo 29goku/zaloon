@@ -544,7 +544,7 @@ export function AtRiskPageClient({
   recoveredThisMonth,
 }: AtRiskPageClientProps) {
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-4 md:p-6 space-y-6">
       {/* Page header */}
       <div>
         <h1 className="text-xl font-bold text-foreground">At-Risk & Lost Clients</h1>

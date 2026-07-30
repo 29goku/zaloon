@@ -110,7 +110,7 @@ export default async function InvoiceDetailPage({
         }
       `}</style>
 
-      <div className="p-8 no-print">
+      <div className="p-4 md:p-8 no-print">
         <a
           href="/dashboard/invoices"
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors"
