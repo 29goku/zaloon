@@ -41,6 +41,26 @@ export async function createStaff(
   }
 }
 
+// ─── updateStaffAvatar ─────────────────────────────────────────────────────────
+
+export async function updateStaffAvatar(
+  id: string,
+  photoBase64: string | null
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    // Read existing avatar JSON to preserve color/role
+    const staff = await prisma.staff.findUnique({ where: { id }, select: { avatar: true } });
+    let existing: Record<string, unknown> = {};
+    try { existing = JSON.parse(staff?.avatar ?? "{}"); } catch {}
+    const updated = { ...existing, photo: photoBase64 };
+    await prisma.staff.update({ where: { id }, data: { avatar: JSON.stringify(updated) } });
+    return { success: true };
+  } catch (err) {
+    console.error("[updateStaffAvatar]", err);
+    return { success: false, error: "Failed to update avatar" };
+  }
+}
+
 // ─── updateStaff ───────────────────────────────────────────────────────────────
 
 const updateStaffSchema = z.object({
