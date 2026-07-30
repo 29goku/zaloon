@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { updateStaffAvatar } from "@/app/actions/staff";
-import { useToast } from "@/components/ui/toast";
+import { useToast } from "@/components/ui/toast-provider";
 import { cn } from "@/lib/utils";
 
 interface StaffAvatarUploadProps {
@@ -30,7 +30,7 @@ export function StaffAvatarUpload({ staffId, name, photo, colorClass }: StaffAva
     startTransition(async () => {
       const res = await updateStaffAvatar(staffId, base64);
       if (!res.success) {
-        toast({ title: "Error", description: res.error, variant: "destructive" });
+        toast({ title: "Error", description: res.error, type: "error" });
         setCurrent(photo ?? null);
       }
     });

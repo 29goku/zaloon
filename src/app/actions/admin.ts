@@ -2,12 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
 
 // ── deleteOldAppointments ──────────────────────────────────────────────────────
 
 export async function deleteOldAppointments(): Promise<
   { success: true; deleted: number } | { success: false; error: string }
 > {
+  const session = await auth();
+  if (!session) {
+    return { success: false, error: "Unauthorized" };
+  }
+
   try {
     const cutoff = new Date();
     cutoff.setFullYear(cutoff.getFullYear() - 1);
@@ -62,6 +68,11 @@ export async function deleteOldAppointments(): Promise<
 export async function deleteCancelledAppointments(): Promise<
   { success: true; deleted: number } | { success: false; error: string }
 > {
+  const session = await auth();
+  if (!session) {
+    return { success: false, error: "Unauthorized" };
+  }
+
   try {
     const appointments = await prisma.appointment.findMany({
       where: { status: "CANCELLED" },

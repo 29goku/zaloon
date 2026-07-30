@@ -1,0 +1,13 @@
+import Stripe from 'stripe'
+
+if (!process.env.STRIPE_SECRET_KEY) {
+  console.warn('[stripe] STRIPE_SECRET_KEY is not set — Stripe features will be disabled')
+}
+
+export const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: '2026-07-29.dahlia',
+    })
+  : null
+
+export const STRIPE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY

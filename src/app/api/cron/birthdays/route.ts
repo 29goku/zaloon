@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { sendEmail } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,7 @@ export async function GET(request: Request) {
       id: true,
       name: true,
       birthday: true,
+      email: true,
     },
   });
 
@@ -92,6 +94,21 @@ export async function GET(request: Request) {
         scheduledAt,
       },
     });
+
+    // Send birthday email if client has an email address
+    if (client.email) {
+      const subject = `Happy Birthday, ${client.name}!`;
+      const html = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #e91e8c;">Happy Birthday, ${client.name}!</h2>
+          <p>${message}</p>
+          <p style="color: #666; font-size: 12px;">You received this because you are a valued client of ${salon.name}.</p>
+        </div>
+      `;
+      sendEmail(client.email, subject, html).catch((err) =>
+        console.error("[cron/birthdays] email send error", err)
+      );
+    }
 
     created++;
   }

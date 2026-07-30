@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { updateAppointmentNotes, type AppointmentNotes } from "@/app/actions/appointments";
 import { addClientPhoto, removeClientPhoto } from "@/app/actions/clients";
+import { ImageUpload } from "@/components/ui/image-upload";
 import Link from "next/link";
 
 // ─── Formula Notes Box ────────────────────────────────────────────────────────
@@ -311,21 +312,18 @@ interface PhotoGalleryProps {
 
 export function PhotoGallery({ clientId, initialPhotos }: PhotoGalleryProps) {
   const [photos, setPhotos] = useState<string[]>(initialPhotos);
-  const [newUrl, setNewUrl] = useState("");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const router = useRouter();
 
-  function handleAdd() {
-    const url = newUrl.trim();
-    if (!url) return;
+  function handleAdd(base64: string | null) {
+    if (!base64) return;
     setError(null);
     startTransition(async () => {
-      const res = await addClientPhoto(clientId, url);
+      const res = await addClientPhoto(clientId, base64);
       if (res.success) {
-        setPhotos((p) => [...p, url]);
-        setNewUrl("");
+        setPhotos((p) => [...p, base64]);
         router.refresh();
       } else {
         setError(res.error);
@@ -356,29 +354,23 @@ export function PhotoGallery({ clientId, initialPhotos }: PhotoGalleryProps) {
           <ImagePlus className="size-4 text-primary" />
           Add Photo
         </p>
-        <div className="flex gap-2">
-          <Input
-            value={newUrl}
-            onChange={(e) => setNewUrl(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-            placeholder="Paste photo URL (https://…)"
-            className="flex-1 text-sm"
+        <div className="flex flex-col items-center gap-2">
+          <ImageUpload
+            value={null}
+            onChange={handleAdd}
+            size="lg"
+            shape="square"
+            placeholder={
+              <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                <ImagePlus className="size-8 opacity-40" />
+                <span className="text-xs">Upload or take photo</span>
+              </div>
+            }
           />
-          <Button
-            onClick={handleAdd}
-            disabled={isPending || !newUrl.trim()}
-            size="sm"
-            className="shrink-0 gap-1.5"
-          >
-            {isPending ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <ImagePlus className="size-3.5" />
-            )}
-            Add
-          </Button>
+          <p className="text-xs text-muted-foreground">Hover to upload from file or use camera</p>
         </div>
         {error && <p className="text-xs text-[#F41666]">{error}</p>}
+        {isPending && <p className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="size-3 animate-spin" /> Saving…</p>}
       </div>
 
       {/* Photo grid */}
@@ -399,10 +391,6 @@ export function PhotoGallery({ clientId, initialPhotos }: PhotoGalleryProps) {
                 src={url}
                 alt="Client photo"
                 className="w-full h-full object-cover"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src =
-                    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%23374151'/%3E%3Ctext x='50' y='55' text-anchor='middle' fill='%236B7280' font-size='12'%3ENo image%3C/text%3E%3C/svg%3E";
-                }}
               />
               <button
                 onClick={() => handleRemove(url)}
@@ -418,15 +406,6 @@ export function PhotoGallery({ clientId, initialPhotos }: PhotoGalleryProps) {
               </button>
             </div>
           ))}
-
-          {/* Add more placeholder */}
-          <button
-            onClick={() => document.querySelector<HTMLInputElement>('input[placeholder*="Photo URL"]')?.focus()}
-            className="rounded-xl border-2 border-dashed border-border aspect-square flex flex-col items-center justify-center gap-2 text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
-          >
-            <ImagePlus className="size-6 opacity-50" />
-            <span className="text-xs">Add photo</span>
-          </button>
         </div>
       )}
     </div>

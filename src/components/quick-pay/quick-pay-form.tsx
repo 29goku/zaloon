@@ -12,6 +12,8 @@ import { validateGiftCard } from "@/app/actions/gift-cards";
 import { searchClients } from "@/app/actions/search";
 import type { ServiceOption, RetailProductOption } from "@/app/dashboard/quick-pay/page";
 import type { CartItem, CreatedInvoice } from "@/app/actions/payments";
+import { StripePaymentForm } from "@/app/dashboard/quick-pay/stripe-payment-form";
+import { STRIPE_PUBLISHABLE_KEY } from "@/lib/stripe";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -108,6 +110,11 @@ export function QuickPayForm({ services, retailProducts = [], onPaymentCreated }
   const [error, setError] = useState<string | null>(null);
   const [completedInvoice, setCompletedInvoice] = useState<CreatedInvoice | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  // Stripe card flow
+  const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
+  // Stash the checkout payload to reuse after Stripe payment succeeds
+  const pendingPayloadRef = useRef<Parameters<typeof checkoutQuickPay>[0] | null>(null);
 
   // ── Derived totals ───────────────────────────────────────────────────────────
 
@@ -257,30 +264,29 @@ export function QuickPayForm({ services, retailProducts = [], onPaymentCreated }
 
   // ── Submit ───────────────────────────────────────────────────────────────────
 
-  const handleSubmit = () => {
-    if (cart.length === 0) { setError("Add at least one service or product to the cart"); return; }
-    setError(null);
-
+  const buildPayload = (): Parameters<typeof checkoutQuickPay>[0] => {
     const splitAmtNum = parseFloat(splitAmount) || 0;
+    return {
+      items: cart,
+      method,
+      split: splitEnabled && splitAmtNum > 0
+        ? { method: splitMethod, amount: splitAmtNum }
+        : undefined,
+      manualDiscount: manualDiscountNum > 0 ? manualDiscountNum : undefined,
+      manualDiscountPct,
+      couponCode: appliedCoupon?.code,
+      giftCardCode: appliedGc?.code,
+      giftCardAmount: appliedGc ? gcApply : undefined,
+      clientId: selectedClient?.id,
+      note: note.trim() || undefined,
+      receiptPrefs: { sms: receiptSms, email: receiptEmail, whatsapp: receiptWhatsapp },
+      tipAmount: tipAmountNum > 0 ? tipAmountNum : undefined,
+    };
+  };
 
+  const runCheckout = (payload: Parameters<typeof checkoutQuickPay>[0]) => {
     startTransition(async () => {
-      const result = await checkoutQuickPay({
-        items: cart,
-        method,
-        split: splitEnabled && splitAmtNum > 0
-          ? { method: splitMethod, amount: splitAmtNum }
-          : undefined,
-        manualDiscount: manualDiscountNum > 0 ? manualDiscountNum : undefined,
-        manualDiscountPct,
-        couponCode: appliedCoupon?.code,
-        giftCardCode: appliedGc?.code,
-        giftCardAmount: appliedGc ? gcApply : undefined,
-        clientId: selectedClient?.id,
-        note: note.trim() || undefined,
-        receiptPrefs: { sms: receiptSms, email: receiptEmail, whatsapp: receiptWhatsapp },
-        tipAmount: tipAmountNum > 0 ? tipAmountNum : undefined,
-      });
-
+      const result = await checkoutQuickPay(payload);
       if (result.success) {
         setCompletedInvoice(result.invoice);
         onPaymentCreated(result.invoice);
@@ -288,6 +294,61 @@ export function QuickPayForm({ services, retailProducts = [], onPaymentCreated }
         setError(result.error);
       }
     });
+  };
+
+  const handleSubmit = () => {
+    if (cart.length === 0) { setError("Add at least one service or product to the cart"); return; }
+    setError(null);
+
+    const payload = buildPayload();
+
+    // For CARD payments, use Stripe if it is configured
+    // (and only when the primary method is CARD — split flows stay as-is)
+    const useStripe = method === "CARD" && !splitEnabled && !!STRIPE_PUBLISHABLE_KEY && total > 0;
+
+    if (useStripe) {
+      startTransition(async () => {
+        try {
+          const res = await fetch("/api/stripe/checkout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              amount: total,
+              currency: "usd",
+              description: `Quick Pay – ${cart.map((i) => i.name).join(", ")}`,
+            }),
+          });
+          const data = await res.json() as { clientSecret?: string; error?: string };
+          if (!res.ok || !data.clientSecret) {
+            setError(data.error ?? "Failed to initialise card payment");
+            return;
+          }
+          pendingPayloadRef.current = payload;
+          setStripeClientSecret(data.clientSecret);
+        } catch (err) {
+          console.error("[QuickPayForm] Stripe init error:", err);
+          setError("Failed to connect to payment service");
+        }
+      });
+      return;
+    }
+
+    runCheckout(payload);
+  };
+
+  // Called when the Stripe card payment succeeds — finish creating the invoice
+  const handleStripeSuccess = () => {
+    const payload = pendingPayloadRef.current;
+    setStripeClientSecret(null);
+    pendingPayloadRef.current = null;
+    if (payload) {
+      runCheckout(payload);
+    }
+  };
+
+  const handleStripeCancel = () => {
+    setStripeClientSecret(null);
+    pendingPayloadRef.current = null;
   };
 
   // ── Reset ────────────────────────────────────────────────────────────────────
@@ -396,6 +457,27 @@ export function QuickPayForm({ services, retailProducts = [], onPaymentCreated }
               New Sale
             </button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Stripe card payment overlay ──────────────────────────────────────────────
+
+  if (stripeClientSecret) {
+    return (
+      <div className="max-w-md mx-auto">
+        <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
+          <div>
+            <p className="text-lg font-bold text-foreground">Card Payment</p>
+            <p className="text-sm text-muted-foreground mt-0.5">Enter your card details to complete the payment</p>
+          </div>
+          <StripePaymentForm
+            clientSecret={stripeClientSecret}
+            total={total}
+            onSuccess={handleStripeSuccess}
+            onCancel={handleStripeCancel}
+          />
         </div>
       </div>
     );
@@ -1035,7 +1117,11 @@ export function QuickPayForm({ services, retailProducts = [], onPaymentCreated }
           disabled={cart.length === 0 || isPending}
           className="w-full py-4 rounded-2xl font-bold text-base bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {isPending ? "Processing..." : `Collect $${total.toFixed(2)}`}
+          {isPending
+            ? "Processing..."
+            : method === "CARD" && !splitEnabled && !!STRIPE_PUBLISHABLE_KEY
+              ? `Pay by Card $${total.toFixed(2)}`
+              : `Collect $${total.toFixed(2)}`}
         </button>
       </div>
     </div>

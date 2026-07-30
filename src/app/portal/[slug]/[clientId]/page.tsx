@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getClientTier, getPointsToNextTier, LOYALTY_TIERS } from "@/lib/loyalty-tiers";
 import { ClientCancelButton } from "./cancel-button";
+import { verifyPortalToken } from "../lookup-action";
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
@@ -709,6 +711,14 @@ export default async function ClientDashboardPage({
   params: Promise<{ slug: string; clientId: string }>;
 }) {
   const { slug, clientId } = await params;
+
+  // Verify the signed portal access cookie before serving any client data
+  const cookieStore = await cookies();
+  const token = cookieStore.get("portal_access")?.value;
+  if (!token || !verifyPortalToken(token, clientId)) {
+    notFound();
+  }
+
   const data = await getClientDashboard(slug, clientId);
 
   if (!data) notFound();

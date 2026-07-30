@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
 import { BookingWizard } from "./booking-wizard";
-import { getBlackoutDates } from "@/app/actions/settings";
+import { getBlackoutDates, getExtendedBookingRules } from "@/app/actions/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -130,6 +130,7 @@ export default async function BookingPage({ params, searchParams }: PageProps) {
   }));
 
   const blackoutDates = await getBlackoutDates();
+  const bookingRules = await getExtendedBookingRules();
 
   const wizardProps = {
     salon: {
@@ -144,6 +145,7 @@ export default async function BookingPage({ params, searchParams }: PageProps) {
     categories,
     staff,
     blackoutDates,
+    bookingRules,
   };
 
   // ─── Embed mode: minimal white frame, no branding header ─────────────────

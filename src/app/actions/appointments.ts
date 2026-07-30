@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { checkAppointmentConflicts, type ConflictInfo } from "@/lib/conflict-detection";
+import { sendEmail } from "@/lib/email";
 
 export type AppointmentWithRelations = {
   id: string;
@@ -1521,7 +1522,49 @@ export async function bookAppointmentPublic(data: {
 
     const totalAmount = services.reduce((sum, s) => sum + s.price, 0);
 
-    // 5. Create the appointment
+    // 5. Server-side slot conflict check — re-verify atomically before insert
+    //    to prevent double-booking race conditions between client-side slot check
+    //    and this server action.
+    const durationMins = services.reduce((sum, s) => sum + s.durationMins, 0) || 30;
+
+    function toMins(t: string): number {
+      const [h, m] = t.split(":").map(Number);
+      return h * 60 + m;
+    }
+
+    const newStart = toMins(startTime);
+    const newEnd = newStart + durationMins;
+
+    const existingAppointments = await prisma.appointment.findMany({
+      where: {
+        staffId: resolvedStaffId,
+        date,
+        status: "SCHEDULED",
+      },
+      include: {
+        AppointmentService: {
+          include: { Service: { select: { durationMins: true } } },
+        },
+      },
+    });
+
+    for (const existing of existingAppointments) {
+      const existingStart = toMins(existing.startTime);
+      const existingDuration = existing.AppointmentService.reduce(
+        (sum, as) => sum + as.Service.durationMins,
+        0
+      ) || 30;
+      const existingEnd = existingStart + existingDuration;
+      // Overlap condition: new slot starts before existing ends AND new slot ends after existing starts
+      if (newStart < existingEnd && newEnd > existingStart) {
+        return {
+          success: false,
+          error: "This time slot is no longer available. Please choose another time.",
+        };
+      }
+    }
+
+    // 7. Create the appointment
     const appointment = await prisma.appointment.create({
       data: {
         id: randomUUID(),
@@ -1543,11 +1586,61 @@ export async function bookAppointmentPublic(data: {
       select: { id: true },
     });
 
-    // 6. Auto-schedule reminders (non-fatal)
+    // 8. Auto-schedule reminders (non-fatal)
     try {
       await generateRemindersForAppointment(appointment.id, salonId);
     } catch {
       // Non-fatal
+    }
+
+    // 9. Send confirmation email (non-fatal)
+    if (clientEmail?.trim()) {
+      try {
+        const [serviceDetails, staffMember, salonForSlug] = await Promise.all([
+          prisma.service.findMany({
+            where: { id: { in: serviceIds } },
+            select: { name: true },
+          }),
+          prisma.staff.findUnique({
+            where: { id: resolvedStaffId },
+            select: { name: true },
+          }),
+          prisma.salon.findUnique({
+            where: { id: salonId },
+            select: { slug: true, name: true },
+          }),
+        ]);
+
+        const serviceNames = serviceDetails.map((s) => s.name).join(", ");
+        const staffName = staffMember?.name ?? "Your stylist";
+        const salonName = salonForSlug?.name ?? "the salon";
+        const salonSlug = salonForSlug?.slug ?? salonId;
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_BASE_URL ?? "";
+        const confirmationLink = `${baseUrl}/book/${salonSlug}/confirmation/${appointment.id}`;
+
+        const subject = `Booking Confirmed — ${salonName}`;
+        const html = `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #1a1a1a;">
+            <h2>Your booking is confirmed!</h2>
+            <p>Hi ${clientName},</p>
+            <p>Your appointment at <strong>${salonName}</strong> has been booked. Here are the details:</p>
+            <table style="border-collapse: collapse; margin: 16px 0;">
+              <tr><td style="padding: 6px 12px; font-weight: bold; color: #555;">Service(s)</td><td style="padding: 6px 12px;">${serviceNames}</td></tr>
+              <tr><td style="padding: 6px 12px; font-weight: bold; color: #555;">Staff</td><td style="padding: 6px 12px;">${staffName}</td></tr>
+              <tr><td style="padding: 6px 12px; font-weight: bold; color: #555;">Date</td><td style="padding: 6px 12px;">${date}</td></tr>
+              <tr><td style="padding: 6px 12px; font-weight: bold; color: #555;">Time</td><td style="padding: 6px 12px;">${startTime}</td></tr>
+            </table>
+            <p><a href="${confirmationLink}" style="color: #e91e8c;">View your booking &rarr;</a></p>
+            <p style="color: #999; font-size: 12px;">If you need to reschedule or cancel, please contact ${salonName} directly.</p>
+          </div>
+        `;
+
+        sendEmail(clientEmail.trim(), subject, html).catch((err) =>
+          console.error("[bookAppointmentPublic] confirmation email error", err)
+        );
+      } catch (emailErr) {
+        console.error("[bookAppointmentPublic] failed to prepare confirmation email", emailErr);
+      }
     }
 
     revalidatePath("/dashboard/appointments");

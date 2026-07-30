@@ -1,7 +1,6 @@
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import { PhoneSearchForm } from "./phone-search-form";
-import { getSalonBranding, findClientByPhone } from "./portal-data";
+import { getSalonBranding } from "./portal-data";
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 
@@ -14,15 +13,6 @@ export default async function PortalLandingPage({
 }) {
   const { slug } = await params;
   const { phone } = await searchParams;
-
-  // If a phone was submitted via GET, attempt redirect to clientId dashboard
-  if (phone) {
-    const client = await findClientByPhone(phone);
-    if (client) {
-      redirect(`/portal/${slug}/${client.id}`);
-    }
-    // Fall through — will render "not found" state via prop
-  }
 
   const salon = await getSalonBranding(slug);
 

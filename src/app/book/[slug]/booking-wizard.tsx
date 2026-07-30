@@ -8,7 +8,7 @@ import { z } from "zod";
 import { getAvailableSlots } from "@/app/actions/booking";
 import { bookAppointmentPublic } from "@/app/actions/appointments";
 import { calculateDynamicPrice } from "@/app/actions/pricing-rules";
-import type { BlackoutDate } from "@/app/actions/settings";
+import type { BlackoutDate, ExtendedBookingRules } from "@/app/actions/settings";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -50,6 +50,7 @@ export interface BookingWizardProps {
   categories: CategoryItem[];
   staff: StaffMember[];
   blackoutDates?: BlackoutDate[];
+  bookingRules?: ExtendedBookingRules;
 }
 
 // ─── Contact form schema ──────────────────────────────────────────────────────
@@ -245,6 +246,40 @@ function TimeSlot({
   );
 }
 
+// ─── Stripe deposit form placeholder ─────────────────────────────────────────
+// Actual Stripe integration will be wired when Stripe keys are configured.
+
+function StripeDepositForm({
+  depositLabel,
+  onSkip,
+}: {
+  depositLabel: string;
+  onSkip: () => void;
+}) {
+  return (
+    <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-5 space-y-4">
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+          <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+          </svg>
+        </div>
+        <div>
+          <p className="font-semibold text-stone-800 text-sm">Deposit required</p>
+          <p className="text-stone-600 text-sm mt-0.5">{depositLabel}</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onSkip}
+        className="w-full h-11 rounded-xl bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 transition-colors shadow-sm"
+      >
+        Pay Deposit
+      </button>
+    </div>
+  );
+}
+
 // ─── Mini calendar ────────────────────────────────────────────────────────────
 
 function isBlackedOut(dateStr: string, blackouts: BlackoutDate[]): boolean {
@@ -394,7 +429,7 @@ function MiniCalendar({
 
 const NO_PREFERENCE_ID = "__no_preference__";
 
-export function BookingWizard({ salon, services, categories, staff, blackoutDates = [] }: BookingWizardProps) {
+export function BookingWizard({ salon, services, categories, staff, blackoutDates = [], bookingRules }: BookingWizardProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -1016,6 +1051,28 @@ export function BookingWizard({ salon, services, categories, staff, blackoutDate
     );
   }
 
+  // ── Deposit step helpers ─────────────────────────────────────────────────────
+
+  // Determine whether the deposit step should be shown:
+  // Only if bookingRules.requireDeposit is true AND NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is set.
+  const stripeKeyConfigured = !!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+  const showDepositStep = !!(bookingRules?.requireDeposit && stripeKeyConfigured);
+
+  // Compute the deposit label shown to the user
+  function depositLabel(): string {
+    if (!bookingRules) return "";
+    const { depositType, depositAmount } = bookingRules;
+    if (depositType === "percentage") {
+      const pct = depositAmount;
+      const depositDue = totalPrice * (pct / 100);
+      return `A deposit of ${formatPrice(depositDue, salon.currency)} (${pct}% of total) is required to confirm your booking.`;
+    }
+    return `A deposit of ${formatPrice(depositAmount, salon.currency)} is required to confirm your booking.`;
+  }
+
+  // Track the confirmed appointment id for deposit step routing
+  const [confirmedAppointmentId, setConfirmedAppointmentId] = useState<string | null>(null);
+
   // ── Step 4: Confirm ──────────────────────────────────────────────────────────
 
   async function onConfirm() {
@@ -1036,7 +1093,13 @@ export function BookingWizard({ salon, services, categories, staff, blackoutDate
         notes: values.note || undefined,
       });
       if (result.success) {
-        router.push(`/book/${salon.slug}/confirmation/${result.appointmentId}`);
+        if (showDepositStep) {
+          // Go to deposit step before navigating to confirmation
+          setConfirmedAppointmentId(result.appointmentId);
+          setStep(5);
+        } else {
+          router.push(`/book/${salon.slug}/confirmation/${result.appointmentId}`);
+        }
       } else {
         setSubmitError(result.error);
       }
@@ -1174,14 +1237,46 @@ export function BookingWizard({ salon, services, categories, staff, blackoutDate
     );
   }
 
+  // ── Step 5: Deposit ──────────────────────────────────────────────────────────
+
+  function renderDepositStep() {
+    const apptId = confirmedAppointmentId;
+
+    function handlePayDeposit() {
+      // Placeholder: actual Stripe integration wired here later.
+      // For now, navigating to confirmation as if payment succeeded.
+      if (apptId) {
+        router.push(`/book/${salon.slug}/confirmation/${apptId}`);
+      }
+    }
+
+    return (
+      <div>
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-stone-800 mb-1">Secure your booking</h2>
+          <p className="text-stone-500 text-sm">
+            A deposit is required to confirm your appointment.
+          </p>
+        </div>
+
+        <StripeDepositForm depositLabel={depositLabel()} onSkip={handlePayDeposit} />
+
+        <p className="text-center text-xs text-stone-400 mt-4">
+          Your appointment has been created. Complete the deposit to confirm.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <>
-      <StepIndicator current={step} />
+      <StepIndicator current={Math.min(step, STEPS.length - 1)} />
       {step === 0 && renderServiceStep()}
       {step === 1 && renderStaffStep()}
       {step === 2 && renderDateTimeStep()}
       {step === 3 && renderInfoStep()}
       {step === 4 && renderConfirmStep()}
+      {step === 5 && renderDepositStep()}
     </>
   );
 }

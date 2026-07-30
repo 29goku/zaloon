@@ -3,6 +3,7 @@
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { sendEmail } from "@/lib/email";
 
 export type ReminderWithRelations = {
   id: string;
@@ -116,8 +117,28 @@ export async function sendDirectMessage(data: {
     const salonId = await getDefaultSalonId();
     if (!salonId) return { success: false, error: "No salon found" };
 
-    // Simulate: scheduledAt = now, status will be marked SENT after 1 second
     const now = new Date();
+
+    // If EMAIL type and clientId provided, look up the client email and send
+    if (data.type === "EMAIL" && data.clientId) {
+      const client = await prisma.client.findUnique({
+        where: { id: data.clientId },
+        select: { name: true, email: true },
+      });
+      if (client?.email) {
+        const subject = "Message from your salon";
+        const html = `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+            <p>Hi ${client.name ?? "there"},</p>
+            <p>${data.message.trim()}</p>
+          </div>
+        `;
+        // Non-blocking: fire and forget
+        sendEmail(client.email, subject, html).catch((err) =>
+          console.error("[sendDirectMessage] email send error", err)
+        );
+      }
+    }
 
     const reminder = await prisma.reminder.create({
       data: {
@@ -132,7 +153,7 @@ export async function sendDirectMessage(data: {
       },
     });
 
-    // Simulate send: mark SENT immediately (in production this would call Twilio/WhatsApp API)
+    // Mark SENT immediately (Twilio/WhatsApp delivery would go here for SMS/WhatsApp)
     await prisma.reminder.update({
       where: { id: reminder.id },
       data: { status: "SENT", sentAt: new Date() },

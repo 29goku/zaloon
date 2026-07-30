@@ -2,7 +2,18 @@ import { Plug, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { IntegrationsClient } from "@/components/settings/integrations-client";
 
+export const dynamic = "force-dynamic";
+
 export default function IntegrationsPage() {
+  // Resolve server-side env vars; NEXT_PUBLIC_* vars are inlined at build time
+  // but can also be read on the server. API_KEY must not be sent to the client
+  // as a NEXT_PUBLIC_ var — we pass it as a prop from the server component so
+  // it is only available in the rendered HTML for authenticated dashboard users.
+  const stripeConfigured = Boolean(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
+  const apiKey = process.env.API_KEY ?? "";
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
+
   return (
     <div className="p-4 md:p-8 max-w-3xl">
       <div className="mb-6">
@@ -22,7 +33,11 @@ export default function IntegrationsPage() {
         </p>
       </div>
 
-      <IntegrationsClient />
+      <IntegrationsClient
+        stripeConfigured={stripeConfigured}
+        apiKey={apiKey}
+        appUrl={appUrl}
+      />
     </div>
   );
 }

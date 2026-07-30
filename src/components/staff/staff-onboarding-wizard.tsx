@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { ImageUpload } from "@/components/ui/image-upload";
 import {
   User,
   Calendar,
@@ -97,6 +98,7 @@ interface BasicInfoData {
   role: string;
   commissionPct: number;
   avatarColor: ColorKey;
+  photo: string | null;
 }
 
 function StepBasicInfo({
@@ -117,18 +119,20 @@ function StepBasicInfo({
 
   return (
     <div className="space-y-6">
-      {/* Avatar preview */}
-      <div className="flex flex-col items-center gap-3 py-4">
-        <div
-          className={cn(
-            "w-20 h-20 rounded-full flex items-center justify-center font-bold text-3xl",
-            colorDef.bg,
-            colorDef.text
-          )}
-        >
-          {initials}
-        </div>
-        <p className="text-sm text-muted-foreground">Avatar preview</p>
+      {/* Avatar / photo */}
+      <div className="flex flex-col items-center gap-2 py-4">
+        <ImageUpload
+          value={data.photo}
+          onChange={(v) => onChange({ ...data, photo: v })}
+          size="lg"
+          shape="circle"
+          placeholder={
+            <div className={cn("w-full h-full rounded-full flex items-center justify-center font-bold text-3xl", colorDef.bg, colorDef.text)}>
+              {initials}
+            </div>
+          }
+        />
+        <p className="text-xs text-muted-foreground">Hover to upload or take photo</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -712,6 +716,7 @@ export function StaffOnboardingWizard({ services, existingStaff }: Props) {
     role: "",
     commissionPct: 30,
     avatarColor: "violet",
+    photo: null,
   });
 
   const [schedule, setSchedule] = useState<WeekSchedule>(DEFAULT_SCHEDULE);
@@ -753,6 +758,7 @@ export function StaffOnboardingWizard({ services, existingStaff }: Props) {
       role: basicInfo.role.trim() || undefined,
       commissionPct: basicInfo.commissionPct,
       avatarColor: basicInfo.avatarColor,
+      photo: basicInfo.photo,
       schedule: scheduleArr,
       services: servicesArr,
     });

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 // Returns all active staff with their services and shifts
 export async function GET(request: Request) {
   const apiKey = request.headers.get("x-api-key") ?? request.headers.get("authorization")?.replace("Bearer ", "");
-  if (process.env.API_SECRET_KEY && apiKey !== process.env.API_SECRET_KEY) {
+  if (apiKey !== process.env.API_SECRET_KEY) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 

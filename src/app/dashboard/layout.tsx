@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { DashboardShell } from "./dashboard-shell";
 import { getBranches } from "@/app/actions/branches";
+import { auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +11,11 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const session = await auth();
+  if (!session) {
+    redirect("/auth/login");
+  }
+
   const [salons, pendingReminderCount, branches] = await Promise.all([
     prisma.salon.findMany({
       select: { id: true, name: true, currency: true, city: true, slug: true },

@@ -15,6 +15,33 @@ function fmtUtc(d: Date): string {
   );
 }
 
+/**
+ * Format a local datetime string for ICS using TZID format: YYYYMMDDTHHmmss
+ * Returns the wall-clock time in the given IANA timezone without a Z suffix.
+ * Uses Intl.DateTimeFormat to extract the local parts for the given timezone.
+ */
+function fmtLocalInTimezone(d: Date, tzid: string): string {
+  try {
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: tzid,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    const parts = Object.fromEntries(fmt.formatToParts(d).map((p) => [p.type, p.value]));
+    // hour12:false can produce "24" for midnight; normalise to "00"
+    const hh = parts.hour === "24" ? "00" : parts.hour;
+    return `${parts.year}${parts.month}${parts.day}T${hh}${parts.minute}${parts.second}`;
+  } catch {
+    // Fallback: treat as UTC if timezone is invalid
+    return fmtUtc(d).replace("Z", "");
+  }
+}
+
 /** Fold long ICS lines to 75-octet limit per RFC 5545. */
 function foldLine(line: string): string {
   if (line.length <= 75) return line;
@@ -50,6 +77,7 @@ export async function GET(
           address: true,
           city: true,
           country: true,
+          timezone: true,
         },
       },
       Staff: {
@@ -74,14 +102,52 @@ export async function GET(
   const totalDurationMins = services.reduce((s, svc) => s + svc.durationMins, 0);
   const serviceNames = services.map((s) => s.name).join(", ");
 
-  // Build start/end in UTC from the stored local date + time
+  // Determine the salon's IANA timezone. If none is stored, fall back to UTC.
+  const salonTimezone = salon.timezone && salon.timezone.trim() ? salon.timezone.trim() : "UTC";
+
+  // Build start date/time interpreted as wall-clock time in the salon's timezone.
   // The date is stored as "YYYY-MM-DD" and time as "HH:MM" in local salon time.
-  // We treat them as UTC here (no timezone stored in schema) — consistent with
-  // the existing confirmation page approach.
+  // We construct a UTC Date that represents that wall-clock moment in the salon's
+  // timezone by using Intl.DateTimeFormat to find the UTC offset at that instant.
   const [y, mo, d] = appointment.date.split("-").map(Number);
   const [h, m] = appointment.startTime.split(":").map(Number);
-  const dtStart = new Date(Date.UTC(y, mo - 1, d, h, m, 0));
-  const dtEnd = new Date(dtStart.getTime() + totalDurationMins * 60 * 1000);
+
+  // Build a candidate UTC date assuming the stored time IS UTC, then adjust
+  // by computing the actual offset the timezone has at that moment.
+  let dtStart: Date;
+  let dtEnd: Date;
+  try {
+    // Parse the local time in the salon's timezone via a formatted parse trick.
+    // We format a known ISO string through the target TZ to get the offset, then
+    // apply it. The simplest correct approach: construct the date with a UTC guess,
+    // then compare what wall-clock time that produces in the target TZ.
+    const naiveUtc = new Date(Date.UTC(y, mo - 1, d, h, m, 0));
+    const localStr = new Intl.DateTimeFormat("en-CA", {
+      timeZone: salonTimezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).format(naiveUtc);
+    // en-CA produces "YYYY-MM-DD, HH:MM:SS"
+    const [datePart, timePart] = localStr.split(", ");
+    const [ly, lmo, ld] = datePart.split("-").map(Number);
+    const [lh, lmin, ls] = timePart.split(":").map(Number);
+    const localAsUtc = new Date(Date.UTC(ly, lmo - 1, ld, lh, lmin, ls));
+    // The offset the TZ applies: naiveUtc (treated as wall clock) minus what that
+    // UTC instant reads as local time gives us the correction.
+    const offsetMs = naiveUtc.getTime() - localAsUtc.getTime();
+    dtStart = new Date(naiveUtc.getTime() + offsetMs);
+    dtEnd = new Date(dtStart.getTime() + totalDurationMins * 60 * 1000);
+  } catch {
+    // Fallback to treating stored time as UTC
+    dtStart = new Date(Date.UTC(y, mo - 1, d, h, m, 0));
+    dtEnd = new Date(dtStart.getTime() + totalDurationMins * 60 * 1000);
+  }
+
   const dtStamp = new Date();
 
   // Build location from salon fields
@@ -90,6 +156,11 @@ export async function GET(
 
   const summary = `${serviceNames} at ${salon.name}`;
   const description = `With ${appointment.Staff.name}`;
+
+  // Use TZID format for DTSTART/DTEND so calendar apps display the correct local
+  // time regardless of the viewer's system timezone.
+  const localStart = fmtLocalInTimezone(dtStart, salonTimezone);
+  const localEnd = fmtLocalInTimezone(dtEnd, salonTimezone);
 
   const lines: string[] = [
     "BEGIN:VCALENDAR",
@@ -100,8 +171,8 @@ export async function GET(
     "BEGIN:VEVENT",
     `UID:${appointmentId}@zaloon`,
     `DTSTAMP:${fmtUtc(dtStamp)}`,
-    `DTSTART:${fmtUtc(dtStart)}`,
-    `DTEND:${fmtUtc(dtEnd)}`,
+    `DTSTART;TZID=${salonTimezone}:${localStart}`,
+    `DTEND;TZID=${salonTimezone}:${localEnd}`,
     `SUMMARY:${summary}`,
     `DESCRIPTION:${description}`,
     ...(location ? [`LOCATION:${location}`] : []),

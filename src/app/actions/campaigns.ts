@@ -373,18 +373,14 @@ export async function launchCampaign(
     );
     const recipientCount = audienceResult.count;
 
-    // Simulate open rate (35%) and click rate (10%)
-    const openCount = Math.round(recipientCount * 0.35);
-    const clickCount = Math.round(recipientCount * 0.1);
-
     await prisma.campaign.update({
       where: { id },
       data: {
         status: "ACTIVE",
         sentAt: new Date(),
         recipientCount,
-        openCount,
-        clickCount,
+        openCount: 0,
+        clickCount: 0,
         scheduledAt: existing.scheduledAt ?? new Date(),
       },
     });
@@ -454,9 +450,6 @@ export async function createCampaignAndSend(data: {
     const salon = await getSalon();
     if (!salon) return { success: false, error: "No salon found" };
 
-    const openCount = Math.round(data.recipientCount * 0.35);
-    const clickCount = Math.round(data.recipientCount * 0.1);
-
     const campaign = await prisma.campaign.create({
       data: {
         id: randomUUID(),
@@ -471,8 +464,8 @@ export async function createCampaignAndSend(data: {
         sentAt: new Date(),
         scheduledAt: new Date(),
         recipientCount: data.recipientCount,
-        openCount,
-        clickCount,
+        openCount: 0,
+        clickCount: 0,
       },
     });
 

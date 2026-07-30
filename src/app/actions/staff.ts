@@ -238,6 +238,7 @@ const createStaffMemberSchema = z.object({
   role: z.string().optional(),
   commissionPct: z.number().min(0).max(100),
   avatarColor: z.string().optional(),
+  photo: z.string().optional().nullable(),
   schedule: z.array(
     z.object({
       dayOfWeek: z.number().int().min(0).max(6),
@@ -259,6 +260,7 @@ export async function createStaffMember(data: {
   role?: string;
   commissionPct: number;
   avatarColor?: string;
+  photo?: string | null;
   schedule: { dayOfWeek: number; startTime: string; endTime: string }[];
   services: { serviceId: string; commissionOverridePct?: number }[];
 }): Promise<{ success: true; id: string } | { success: false; error: string }> {
@@ -271,12 +273,13 @@ export async function createStaffMember(data: {
     const salon = await prisma.salon.findFirst();
     if (!salon) return { success: false, error: "No salon found" };
 
-    const { name, phone, role, commissionPct, avatarColor, schedule, services } = parsed.data;
+    const { name, phone, role, commissionPct, avatarColor, photo, schedule, services } = parsed.data;
 
-    // Pack role + color into the avatar JSON field
+    // Pack role + color + photo into the avatar JSON field
     const avatarJson = JSON.stringify({
       color: avatarColor ?? "violet",
       role: role ?? "",
+      ...(photo ? { photo } : {}),
     });
 
     const staffId = randomUUID();

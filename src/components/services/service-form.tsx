@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2 } from "lucide-react";
 
+import { ImageUpload } from "@/components/ui/image-upload";
 import {
   Select,
   SelectContent,
@@ -94,6 +95,7 @@ export function ServiceForm({ service, categories, onSuccess }: ServiceFormProps
   });
 
   const categoryId = watch("categoryId");
+  const imageUrl = watch("imageUrl");
   const active = watch("active");
   const isAddon = watch("isAddon");
   const onlineBooking = watch("onlineBooking");
@@ -206,18 +208,21 @@ export function ServiceForm({ service, categories, onSuccess }: ServiceFormProps
         )}
       </div>
 
-      {/* Image URL */}
+      {/* Service image */}
       <div className="space-y-1.5">
-        <Label htmlFor="sf-image">
-          Image URL{" "}
+        <Label>
+          Image{" "}
           <span className="text-muted-foreground font-normal">(optional)</span>
         </Label>
-        <Input
-          id="sf-image"
-          type="url"
-          placeholder="https://example.com/image.jpg"
-          {...register("imageUrl")}
-        />
+        <div className="flex items-center gap-3">
+          <ImageUpload
+            value={imageUrl || null}
+            onChange={(v) => setValue("imageUrl", v ?? "", { shouldValidate: false })}
+            size="md"
+            shape="square"
+          />
+          <p className="text-xs text-muted-foreground">Hover the square to upload or take a photo</p>
+        </div>
       </div>
 
       {/* Buffer times */}

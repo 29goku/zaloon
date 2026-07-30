@@ -29,6 +29,7 @@ import { TimesheetTab } from "@/components/staff/timesheet-tab";
 import { getTimeEntries } from "@/app/actions/timetracking";
 import { getStaffUnavailability, getStaffGoals } from "@/app/actions/settings";
 import { calculateAchievements, ACHIEVEMENTS, TIER_POINTS } from "@/lib/achievements";
+import { StaffAvatarUpload } from "@/components/staff/staff-avatar-upload";
 
 export const dynamic = "force-dynamic";
 
@@ -297,16 +298,12 @@ export default async function StaffDetailPage({
           <CardContent className="p-6">
             <div className="flex items-start gap-4">
               {/* Avatar */}
-              <div
-                className={`w-16 h-16 rounded-full flex items-center justify-center font-bold text-2xl flex-shrink-0 ${avatarColor(staff.name)}`}
-              >
-                {staff.name
-                  .split(" ")
-                  .map((w) => w[0])
-                  .slice(0, 2)
-                  .join("")
-                  .toUpperCase()}
-              </div>
+              <StaffAvatarUpload
+                staffId={staff.id}
+                name={staff.name}
+                photo={(() => { try { return JSON.parse(staff.avatar ?? "{}").photo ?? null; } catch { return null; } })()}
+                colorClass={avatarColor(staff.name)}
+              />
 
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
