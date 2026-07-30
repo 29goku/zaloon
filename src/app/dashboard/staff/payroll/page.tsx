@@ -1,9 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
-import { ArrowLeft, Download, DollarSign, TrendingUp, BarChart3, Ban } from "lucide-react";
+import { ArrowLeft, Download, DollarSign, TrendingUp, BarChart3 } from "lucide-react";
 import { Suspense } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PayrollDateControls } from "./payroll-date-controls";
+import { MarkPaidButton } from "./mark-paid-button";
 
 export const dynamic = "force-dynamic";
 
@@ -97,7 +98,7 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
     to = defaults.to;
   }
 
-  // Fetch all staff with completed appointments in date range
+  // Fetch all staff with completed appointments in date range + paid status
   const staff = await prisma.staff.findMany({
     orderBy: { name: "asc" },
     include: {
@@ -111,6 +112,14 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
             select: { total: true, status: true },
           },
         },
+      },
+      PayrollRecord: {
+        where: {
+          periodStart: new Date(from),
+          periodEnd: new Date(to),
+        },
+        select: { id: true },
+        take: 1,
       },
     },
   });
@@ -131,6 +140,7 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
       appointmentCount,
       revenue,
       commissionEarned,
+      alreadyPaid: member.PayrollRecord.length > 0,
     };
   });
 
@@ -327,14 +337,15 @@ export default async function PayrollPage({ searchParams }: PayrollPageProps) {
                     ${row.commissionEarned.toFixed(2)}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      disabled
-                      title="Payment tracking coming soon"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-muted-foreground border border-border cursor-not-allowed opacity-60"
-                    >
-                      <Ban className="w-3 h-3" />
-                      Mark Paid
-                    </button>
+                    <MarkPaidButton
+                      staffId={row.id}
+                      staffName={row.name}
+                      from={from}
+                      to={to}
+                      revenue={row.revenue}
+                      commission={row.commissionEarned}
+                      initialPaid={row.alreadyPaid}
+                    />
                   </td>
                 </tr>
               ))

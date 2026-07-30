@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { AutoPrint } from "../print/auto-print";
 import { PrintButton } from "../print-button";
 import { getClientTier } from "@/lib/loyalty-tiers";
+import QRCode from "qrcode";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,15 @@ export default async function InvoiceReceiptPage({
   const taxNumber = taxSettings.enabled ? taxSettings.taxNumber : null;
   const includeTaxInPrice = taxSettings.enabled ? taxSettings.includeTaxInPrice : true;
   const invoiceFooter = salon?.invoiceFooter ?? null;
+
+  const qrSvg = salon?.slug
+    ? await QRCode.toString(`https://book.zaloon.com/${salon.slug}`, {
+        type: "svg",
+        margin: 1,
+        width: 80,
+        color: { dark: "#111111", light: "#ffffff" },
+      })
+    : null;
 
   const hasTax = taxRate > 0;
   const subtotal = hasTax
@@ -430,23 +440,12 @@ export default async function InvoiceReceiptPage({
             </p>
             {salon?.slug && (
               <>
-                {/* QR placeholder — text only; swap with a real <QRCode> lib if needed */}
-                <div
-                  style={{
-                    display: "inline-block",
-                    border: "2px solid #111",
-                    padding: "8px",
-                    margin: "6px auto",
-                    fontSize: "9px",
-                    letterSpacing: "0",
-                    color: "#555",
-                    lineHeight: "1.3",
-                  }}
-                >
-                  [QR CODE]
-                  <br />
-                  Book online
-                </div>
+                {qrSvg && (
+                  <div
+                    style={{ display: "inline-block", margin: "6px auto" }}
+                    dangerouslySetInnerHTML={{ __html: qrSvg }}
+                  />
+                )}
                 <p style={{ fontSize: "11px", color: "#555", margin: "4px 0 0" }}>
                   book.zaloon.com/{salon.slug}
                 </p>

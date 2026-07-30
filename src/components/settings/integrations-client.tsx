@@ -233,9 +233,6 @@ export function IntegrationsClient() {
         );
       })}
 
-      <p className="text-xs text-muted-foreground pt-2">
-        More integrations — including Mailchimp, Twilio, and Acuity migration — coming soon.
-      </p>
     </div>
   );
 }
