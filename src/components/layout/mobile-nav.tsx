@@ -15,7 +15,7 @@ import {
   Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { FEATURES } from "@/lib/feature-flags";
+import type { Features } from "@/lib/feature-flags";
 import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useCommandPalette } from "@/components/search/command-palette";
@@ -26,18 +26,20 @@ const primaryNavItems = [
   { href: "/dashboard/clients", label: "Clients", icon: UserCircle },
 ];
 
-const moreNavItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/dashboard/invoices", label: "Invoices", icon: Receipt },
-  ...(FEATURES.REPORTS ? [{ href: "/dashboard/reports", label: "Reports", icon: BarChart3 }] : []),
-  { href: "/dashboard/settings", label: "Settings", icon: Settings },
-  { href: "/dashboard/staff", label: "Staff", icon: Users },
-];
+const DEFAULT_FEATURES: Features = { FINANCE: false, REPORTS: false, OPERATIONS: false };
 
-export function MobileNav() {
+export function MobileNav({ features = DEFAULT_FEATURES }: { features?: Features }) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
   const { setOpen: openSearch } = useCommandPalette();
+
+  const moreNavItems = [
+    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    ...(features.OPERATIONS ? [{ href: "/dashboard/invoices", label: "Invoices", icon: Receipt }] : []),
+    ...(features.REPORTS ? [{ href: "/dashboard/reports", label: "Reports", icon: BarChart3 }] : []),
+    { href: "/dashboard/settings", label: "Settings", icon: Settings },
+    { href: "/dashboard/staff", label: "Staff", icon: Users },
+  ];
 
   // Check if the current path matches any "more" item so we can highlight the More tab.
   // For "/dashboard" we require an exact match — otherwise every route would match

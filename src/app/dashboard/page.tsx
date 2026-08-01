@@ -12,12 +12,14 @@ export default async function DashboardPage() {
   const now = new Date();
   const today = now.toISOString().split("T")[0];
 
-  // Redirect to onboarding when the salon has neither staff nor services
-  const [staffCount, serviceCount] = await Promise.all([
+  // Redirect to onboarding only on a completely fresh install (no staff, no services,
+  // and salon name is still the default placeholder).
+  const [staffCount, serviceCount, salon0] = await Promise.all([
     prisma.staff.count(),
     prisma.service.count(),
+    prisma.salon.findFirst({ select: { name: true } }),
   ]);
-  if (staffCount === 0 && serviceCount === 0) {
+  if (staffCount === 0 && serviceCount === 0 && (!salon0 || salon0.name === "My Salon")) {
     redirect("/dashboard/onboarding");
   }
 

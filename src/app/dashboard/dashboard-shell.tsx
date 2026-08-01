@@ -127,7 +127,7 @@ export function DashboardShell({
           </main>
         </div>
 
-        <MobileNav />
+        <MobileNav features={features} />
         <QuickActionsFab />
         <Toaster />
       </div>

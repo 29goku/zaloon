@@ -61,8 +61,6 @@ function buildNavItems(f: Features): NavItem[] {
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/dashboard/activity", label: "Activity Log", icon: Activity },
     { href: "/dashboard/appointments", label: "Appointments", icon: CalendarDays },
-    { href: "/dashboard/checkin", label: "Check-In Board", icon: CheckSquare, indent: true },
-    { href: "/dashboard/queue", label: "Queue", icon: Users, indent: true },
     { href: "/dashboard/staff", label: "Staff", icon: Users },
     { href: "/dashboard/staff/schedule", label: "Schedule", icon: CalendarRange, indent: true },
     { href: "/dashboard/staff/time-off", label: "Time Off", icon: Umbrella, indent: true },
@@ -134,7 +132,8 @@ function buildNavItems(f: Features): NavItem[] {
   { href: "/dashboard/settings/booking-confirmations", label: "Confirmation Templates", icon: MessageSquare, indent: true },
   { href: "/dashboard/settings/export", label: "Export Data", icon: Download, indent: true },
   { href: "/dashboard/settings/import", label: "Import Data", icon: Upload, indent: true },
-];
+  ];
+}
 
 interface SidebarNavProps {
   onClose?: () => void;

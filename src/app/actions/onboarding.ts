@@ -166,6 +166,20 @@ export async function createOnboardingStaff(
   }
 }
 
+// ── deleteOnboardingStaff ──────────────────────────────────────────────────
+
+export async function deleteOnboardingStaff(
+  staffId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    await prisma.staff.delete({ where: { id: staffId } });
+    return { success: true };
+  } catch (err) {
+    console.error("[deleteOnboardingStaff]", err);
+    return { success: false, error: "Failed to delete staff member" };
+  }
+}
+
 // ── saveStaffAvailability ──────────────────────────────────────────────────
 
 const shiftInputSchema = z.object({

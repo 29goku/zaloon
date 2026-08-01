@@ -32,6 +32,7 @@ import {
   updateSalonProfile,
   bulkCreateServices,
   createOnboardingStaff,
+  deleteOnboardingStaff,
   saveStaffAvailability,
 } from "@/app/actions/onboarding";
 
@@ -860,6 +861,9 @@ function Step3Staff({ onComplete, onBack }: Step3Props) {
   function removeStaff(staffId: string) {
     setStaffList((prev) => prev.filter((s) => s.id !== staffId));
     if (expandedAvailability === staffId) setExpandedAvailability(null);
+    startTransition(async () => {
+      await deleteOnboardingStaff(staffId);
+    });
   }
 
   return (
@@ -1254,7 +1258,7 @@ export function OnboardingWizard({
       {step < 4 && (
         <div className="mt-6 text-center">
           <a
-            href="/dashboard"
+            href="/dashboard/appointments"
             className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4 transition-colors"
           >
             Skip setup and go to dashboard
