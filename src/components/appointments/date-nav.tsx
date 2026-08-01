@@ -37,7 +37,7 @@ export function DateNav({ currentDate }: DateNavProps) {
   const isToday = displayDate === today;
 
   function navigate(date: string) {
-    router.push(`?date=${date}`);
+    router.push(`/dashboard/appointments?date=${date}`, { scroll: false });
   }
 
   return (

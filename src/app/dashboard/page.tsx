@@ -20,7 +20,7 @@ export default async function DashboardPage() {
     prisma.salon.findFirst({ select: { name: true } }),
   ]);
   if (staffCount === 0 && serviceCount === 0 && (!salon0 || salon0.name === "My Salon")) {
-    redirect("/dashboard/onboarding");
+    redirect("/onboarding");
   }
 
   // Start of today (midnight)
