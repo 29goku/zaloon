@@ -1,10 +1,10 @@
 import type React from "react";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CalendarDays, List, LayoutGrid, History, CheckCircle2, UserX, TrendingUp } from "lucide-react";
+import { CalendarDays, List, LayoutGrid, History, CheckCircle2, UserX, TrendingUp, CheckSquare, Users } from "lucide-react";
 import { NewAppointmentModal } from "@/components/appointments/new-appointment-modal";
 import { AppointmentCalendar } from "@/components/appointments/appointment-calendar";
-import { getAppointmentsForWeek } from "@/app/actions/appointments";
+import { getAppointmentsForWeek, getQueueForToday } from "@/app/actions/appointments";
 import { DateNav } from "@/components/appointments/date-nav";
 import { AppointmentsListWithSheet } from "@/components/appointments/appointments-list-with-sheet";
 import {
@@ -13,6 +13,10 @@ import {
   type HistoryStats,
 } from "@/components/appointments/appointment-history-table";
 import { getAppointmentsBySeries } from "@/app/actions/appointments";
+import { CheckInBoardClient } from "@/app/dashboard/checkin/check-in-board-client";
+import { QueueActions } from "@/app/dashboard/queue/queue-actions";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { Suspense } from "react";
 
@@ -25,6 +29,25 @@ function getWeekMonday(dateStr: string): string {
   const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
   return d.toISOString().split("T")[0];
+}
+
+// ── Queue helpers (copied from /dashboard/queue/page.tsx) ─────────────────────
+
+function statusBadgeClass(status: string): string {
+  switch (status) {
+    case "SCHEDULED": return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-transparent";
+    case "IN_PROGRESS": return "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 border-transparent";
+    case "COMPLETED": return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-transparent";
+    case "NO_SHOW": return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-transparent";
+    default: return "bg-muted text-muted-foreground border-transparent";
+  }
+}
+
+function formatQueueTime(time: string): string {
+  const [h, m] = time.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const hour = h % 12 || 12;
+  return `${hour}:${String(m).padStart(2, "0")} ${period}`;
 }
 
 interface PageProps {
@@ -129,6 +152,181 @@ export default async function AppointmentsPage({ searchParams }: PageProps) {
             />
           </CardContent>
         </Card>
+      </div>
+    );
+  }
+
+  // ── Check-In Board view ────────────────────────────────────────────────────
+  if (params.view === "checkin") {
+    const today = new Date().toISOString().split("T")[0];
+    const [appointments, salon] = await Promise.all([
+      prisma.appointment.findMany({
+        where: { date: today, status: { not: "CANCELLED" } },
+        orderBy: { startTime: "asc" },
+        include: {
+          Client: { select: { id: true, name: true, phone: true } },
+          Staff: { select: { id: true, name: true } },
+          AppointmentService: {
+            include: {
+              Service: { select: { id: true, name: true, durationMins: true, price: true } },
+            },
+          },
+        },
+      }),
+      prisma.salon.findFirst({ select: { currency: true } }),
+    ]);
+
+    const mapped = appointments.map((a) => ({
+      id: a.id,
+      status: a.status,
+      startTime: a.startTime,
+      date: a.date,
+      notes: a.notes,
+      totalAmount: a.totalAmount,
+      client: a.Client ? { id: a.Client.id, name: a.Client.name, phone: a.Client.phone } : null,
+      staff: { id: a.Staff.id, name: a.Staff.name },
+      services: a.AppointmentService.map((as) => ({
+        service: { id: as.Service.id, name: as.Service.name, durationMins: as.Service.durationMins, price: as.Service.price },
+      })),
+    }));
+
+    return (
+      <div>
+        <div className="px-4 md:px-8 pt-4 md:pt-8 pb-0">
+          <CheckInHeader view="checkin" today={today} />
+        </div>
+        <CheckInBoardClient appointments={mapped} currency={salon?.currency ?? "USD"} today={today} />
+      </div>
+    );
+  }
+
+  // ── Queue view ─────────────────────────────────────────────────────────────
+  if (params.view === "queue") {
+    const { entries, staffCards } = await getQueueForToday();
+    const today = new Date().toISOString().split("T")[0];
+
+    const activeCount = entries.filter((e) => e.status === "SCHEDULED" || e.status === "IN_PROGRESS").length;
+    const completedCount = entries.filter((e) => e.status === "COMPLETED").length;
+    const inProgressCount = entries.filter((e) => e.status === "IN_PROGRESS").length;
+
+    return (
+      <div className="p-4 md:p-6 space-y-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <CheckInHeader view="queue" today={today} />
+          <Link
+            href="/queue-display"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-muted hover:bg-muted/80 text-sm font-medium transition-colors self-start"
+          >
+            <span className="w-4 h-4 text-muted-foreground">📺</span>
+            TV Display
+          </Link>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: "Total today", value: entries.length, color: "bg-primary/10" },
+            { label: "In progress", value: inProgressCount, color: "bg-amber-100 dark:bg-amber-900/30" },
+            { label: "Remaining", value: activeCount, color: "bg-blue-100 dark:bg-blue-900/30" },
+            { label: "Completed", value: completedCount, color: "bg-green-100 dark:bg-green-900/30" },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="rounded-xl border border-border bg-card p-4 flex items-center gap-3">
+              <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0", color)}>
+                <Users className="w-4 h-4 text-primary" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold leading-none">{value}</p>
+                <p className="text-xs text-muted-foreground mt-1">{label}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Staff cards */}
+        {staffCards.length > 0 && (
+          <section>
+            <h2 className="text-base font-semibold mb-3">Staff Overview</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              {staffCards.map((card) => (
+                <div key={card.staffId} className="rounded-xl border border-border bg-card p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="font-semibold text-sm text-foreground">{card.staffName}</p>
+                    {card.currentAppointment ? (
+                      <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded-full">Busy</span>
+                    ) : card.idleMins !== null ? (
+                      <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">Idle {card.idleMins}m</span>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">Free</span>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-1">Now serving</p>
+                    {card.currentAppointment ? (
+                      <div className="bg-amber-50 dark:bg-amber-950/20 rounded-lg p-2.5">
+                        <p className="text-sm font-medium">{card.currentAppointment.clientName}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{card.currentAppointment.services}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{formatQueueTime(card.currentAppointment.startTime)}</p>
+                      </div>
+                    ) : <p className="text-xs text-muted-foreground">—</p>}
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-1">Up next</p>
+                    {card.nextAppointment ? (
+                      <div className="bg-muted/40 rounded-lg p-2.5">
+                        <p className="text-sm font-medium">{card.nextAppointment.clientName}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{card.nextAppointment.services}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{formatQueueTime(card.nextAppointment.startTime)}</p>
+                      </div>
+                    ) : <p className="text-xs text-muted-foreground">No more appointments</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Queue table */}
+        <section>
+          <h2 className="text-base font-semibold mb-3">Today&apos;s Queue</h2>
+          {entries.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center gap-3 rounded-xl border border-border">
+              <Users className="w-10 h-10 text-muted-foreground/40" />
+              <p className="text-muted-foreground text-sm">No appointments scheduled for today.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40">
+                    {["#", "Client", "Services", "Time", "Est. Wait", "Staff", "Status", "Actions"].map((h) => (
+                      <th key={h} className={cn("px-4 py-3 text-left font-semibold text-muted-foreground text-xs uppercase tracking-wide", h === "Actions" && "text-right")}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {entries.map((entry) => (
+                    <tr key={entry.id} className={cn("bg-card hover:bg-muted/30 transition-colors", entry.status === "IN_PROGRESS" && "bg-amber-50/40 dark:bg-amber-950/10", entry.status === "COMPLETED" && "opacity-60", entry.status === "NO_SHOW" && "opacity-50")}>
+                      <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{entry.position}</td>
+                      <td className="px-4 py-3"><p className="font-medium">{entry.clientName}</p></td>
+                      <td className="px-4 py-3 text-muted-foreground max-w-[200px]"><p className="truncate">{entry.services}</p></td>
+                      <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{formatQueueTime(entry.startTime)}</td>
+                      <td className="px-4 py-3">
+                        {entry.status === "SCHEDULED" ? (
+                          entry.estimatedWaitMins === 0
+                            ? <span className="text-xs text-green-600 dark:text-green-400 font-medium">Now</span>
+                            : <span className="text-xs text-muted-foreground">~{entry.estimatedWaitMins} min</span>
+                        ) : <span className="text-xs text-muted-foreground/50">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{entry.staffName}</td>
+                      <td className="px-4 py-3"><Badge className={cn("text-xs font-medium", statusBadgeClass(entry.status))}>{entry.status.replace("_", " ")}</Badge></td>
+                      <td className="px-4 py-3 text-right"><QueueActions id={entry.id} status={entry.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
     );
   }
@@ -405,6 +603,67 @@ export default async function AppointmentsPage({ searchParams }: PageProps) {
 
 // ── Sub-components (server-renderable) ────────────────────────────────────────
 
+/** Minimal header for checkin / queue views (no new-appt button needed) */
+function CheckInHeader({ view, today }: { view: "checkin" | "queue"; today: string }) {
+  return (
+    <div className="flex items-start sm:items-center justify-between mb-6 flex-wrap gap-4">
+      <div>
+        <h1 className="text-2xl md:text-3xl font-bold text-foreground flex items-center gap-2">
+          {view === "checkin" ? (
+            <><CheckSquare className="w-6 h-6 text-primary" /> Check-In Board</>
+          ) : (
+            <><Users className="w-6 h-6 text-primary" /> Queue</>
+          )}
+        </h1>
+        <p className="text-muted-foreground mt-1 text-sm">
+          {new Date().toLocaleDateString("en-US", { dateStyle: "full" })}
+        </p>
+      </div>
+      <ViewToggle view={view} today={today} />
+    </div>
+  );
+}
+
+function ViewToggle({ view, today, weekStart, selectedDate }: {
+  view: "list" | "calendar" | "history" | "checkin" | "queue";
+  today: string;
+  weekStart?: string;
+  selectedDate?: string;
+}) {
+  const calHref = `?view=calendar&week=${weekStart ?? today}`;
+  const listHref = `?view=list&date=${selectedDate ?? today}`;
+  const historyHref = `?view=history`;
+  const checkinHref = `?view=checkin`;
+  const queueHref = `?view=queue`;
+
+  const tabs = [
+    { href: listHref, label: "List", icon: List, key: "list" },
+    { href: calHref, label: "Calendar", icon: LayoutGrid, key: "calendar" },
+    { href: historyHref, label: "History", icon: History, key: "history" },
+    { href: checkinHref, label: "Check-In", icon: CheckSquare, key: "checkin" },
+    { href: queueHref, label: "Queue", icon: Users, key: "queue" },
+  ] as const;
+
+  return (
+    <div className="flex rounded-lg overflow-hidden border border-border">
+      {tabs.map(({ href, label, icon: Icon, key }) => (
+        <Link
+          key={key}
+          href={href}
+          className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm font-medium transition-colors ${
+            view === key
+              ? "bg-primary text-primary-foreground"
+              : "bg-card text-muted-foreground hover:text-foreground hover:bg-secondary"
+          }`}
+        >
+          <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+          <span className="hidden sm:inline">{label}</span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 function Header({
   view,
   today,
@@ -424,10 +683,6 @@ function Header({
   categories: { id: string; name: string }[];
   salonId?: string;
 }) {
-  const calHref = `?view=calendar&week=${weekStart ?? today}`;
-  const listHref = `?view=list&date=${selectedDate ?? today}`;
-  const historyHref = `?view=history`;
-
   return (
     <div className="flex items-start sm:items-center justify-between mb-6 md:mb-8 flex-wrap gap-4">
       <div>
@@ -435,44 +690,7 @@ function Header({
         <p className="text-muted-foreground mt-1 text-sm">Manage bookings and schedule</p>
       </div>
       <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-        {/* View toggle */}
-        <div className="flex rounded-lg overflow-hidden border border-border">
-          <Link
-            href={listHref}
-            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm font-medium transition-colors ${
-              view === "list"
-                ? "bg-primary text-primary-foreground"
-                : "bg-card text-muted-foreground hover:text-foreground hover:bg-secondary"
-            }`}
-          >
-            <List className="w-3.5 h-3.5 flex-shrink-0" />
-            <span className="hidden sm:inline">List view</span>
-          </Link>
-          <Link
-            href={calHref}
-            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm font-medium transition-colors ${
-              view === "calendar"
-                ? "bg-primary text-primary-foreground"
-                : "bg-card text-muted-foreground hover:text-foreground hover:bg-secondary"
-            }`}
-          >
-            <LayoutGrid className="w-3.5 h-3.5 flex-shrink-0" />
-            <span className="hidden sm:inline">Calendar</span>
-          </Link>
-          <Link
-            href={historyHref}
-            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm font-medium transition-colors ${
-              view === "history"
-                ? "bg-primary text-primary-foreground"
-                : "bg-card text-muted-foreground hover:text-foreground hover:bg-secondary"
-            }`}
-          >
-            <History className="w-3.5 h-3.5 flex-shrink-0" />
-            <span className="hidden sm:inline">History</span>
-          </Link>
-        </div>
-
-        {/* Only show New Appointment button in non-history views */}
+        <ViewToggle view={view} today={today} weekStart={weekStart} selectedDate={selectedDate} />
         {view !== "history" && (
           <NewAppointmentModal
             staff={staff}
