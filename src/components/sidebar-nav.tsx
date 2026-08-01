@@ -1,6 +1,8 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
+import { FEATURES } from "@/lib/feature-flags";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
@@ -52,7 +54,8 @@ import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { LocationSwitcher } from "@/components/sidebar/location-switcher";
 import type { SalonLocation } from "@/components/sidebar/location-switcher";
 
-const navItems = [
+type NavItem = { href: string; label: string; icon: React.ElementType; indent?: boolean };
+const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/activity", label: "Activity Log", icon: Activity },
   { href: "/dashboard/appointments", label: "Appointments", icon: CalendarDays },
@@ -66,15 +69,17 @@ const navItems = [
   { href: "/dashboard/staff/payroll", label: "Payroll", icon: Banknote, indent: true },
   { href: "/dashboard/staff/timeclock", label: "Time Clock", icon: Clock, indent: true },
   { href: "/dashboard/staff/leaderboard", label: "Leaderboard", icon: Award, indent: true },
-  { href: "/dashboard/finance", label: "Finance", icon: TrendingUp },
-  { href: "/dashboard/finance/tips", label: "Tips", icon: DollarSign, indent: true },
-  { href: "/dashboard/finance/tax", label: "Tax Report", icon: Receipt, indent: true },
-  { href: "/dashboard/payroll", label: "Payroll", icon: Banknote, indent: true },
-  { href: "/dashboard/finance/forecast", label: "Forecast", icon: TrendingUp, indent: true },
-  { href: "/dashboard/finance/goals", label: "Goals", icon: Target, indent: true },
-  { href: "/dashboard/finance/breakeven", label: "Break-even", icon: Activity, indent: true },
-  { href: "/dashboard/finance/expenses", label: "Expenses", icon: Receipt, indent: true },
-  { href: "/dashboard/finance/budget", label: "Budget", icon: Target, indent: true },
+  ...(FEATURES.FINANCE ? [
+    { href: "/dashboard/finance", label: "Finance", icon: TrendingUp },
+    { href: "/dashboard/finance/tips", label: "Tips", icon: DollarSign, indent: true },
+    { href: "/dashboard/finance/tax", label: "Tax Report", icon: Receipt, indent: true },
+    { href: "/dashboard/payroll", label: "Payroll", icon: Banknote, indent: true },
+    { href: "/dashboard/finance/forecast", label: "Forecast", icon: TrendingUp, indent: true },
+    { href: "/dashboard/finance/goals", label: "Goals", icon: Target, indent: true },
+    { href: "/dashboard/finance/breakeven", label: "Break-even", icon: Activity, indent: true },
+    { href: "/dashboard/finance/expenses", label: "Expenses", icon: Receipt, indent: true },
+    { href: "/dashboard/finance/budget", label: "Budget", icon: Target, indent: true },
+  ] : []),
   { href: "/dashboard/services", label: "Services", icon: Scissors },
   { href: "/dashboard/services/packages", label: "Packages", icon: Package2, indent: true },
   { href: "/dashboard/services/addons", label: "Add-ons", icon: Layers, indent: true },
@@ -88,12 +93,14 @@ const navItems = [
   { href: "/dashboard/coupons", label: "Coupons", icon: Tag },
   { href: "/dashboard/reviews", label: "Reviews", icon: Star },
   { href: "/dashboard/inventory", label: "Inventory", icon: Package },
-  { href: "/dashboard/reports", label: "Reports", icon: BarChart3 },
-  { href: "/dashboard/reports/revenue", label: "Revenue", icon: DollarSign, indent: true },
-  { href: "/dashboard/reports/services", label: "Services", icon: Scissors, indent: true },
-  { href: "/dashboard/reports/staff", label: "Staff", icon: BarChart2, indent: true },
-  { href: "/dashboard/reports/clients", label: "Clients", icon: UserCircle, indent: true },
-  { href: "/dashboard/reports/appointments", label: "Appointments", icon: CalendarDays, indent: true },
+  ...(FEATURES.REPORTS ? [
+    { href: "/dashboard/reports", label: "Reports", icon: BarChart3 },
+    { href: "/dashboard/reports/revenue", label: "Revenue", icon: DollarSign, indent: true },
+    { href: "/dashboard/reports/services", label: "Services", icon: Scissors, indent: true },
+    { href: "/dashboard/reports/staff", label: "Staff", icon: BarChart2, indent: true },
+    { href: "/dashboard/reports/clients", label: "Clients", icon: UserCircle, indent: true },
+    { href: "/dashboard/reports/appointments", label: "Appointments", icon: CalendarDays, indent: true },
+  ] : []),
   { href: "/dashboard/communications", label: "Messages", icon: MessageSquare },
   { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
   { href: "/dashboard/reminders", label: "Reminders", icon: Bell },

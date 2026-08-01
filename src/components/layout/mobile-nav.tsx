@@ -15,6 +15,7 @@ import {
   Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FEATURES } from "@/lib/feature-flags";
 import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useCommandPalette } from "@/components/search/command-palette";
@@ -28,7 +29,7 @@ const primaryNavItems = [
 const moreNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/invoices", label: "Invoices", icon: Receipt },
-  { href: "/dashboard/reports", label: "Reports", icon: BarChart3 },
+  ...(FEATURES.REPORTS ? [{ href: "/dashboard/reports", label: "Reports", icon: BarChart3 }] : []),
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
   { href: "/dashboard/staff", label: "Staff", icon: Users },
 ];
