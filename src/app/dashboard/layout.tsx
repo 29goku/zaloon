@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { DashboardShell } from "./dashboard-shell";
 import { getBranches } from "@/app/actions/branches";
+import { getFeatures } from "@/lib/feature-flags";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 
@@ -16,13 +17,14 @@ export default async function DashboardLayout({
     redirect("/auth/login");
   }
 
-  const [salons, pendingReminderCount, branches] = await Promise.all([
+  const [salons, pendingReminderCount, branches, features] = await Promise.all([
     prisma.salon.findMany({
       select: { id: true, name: true, currency: true, city: true, slug: true },
       orderBy: { createdAt: "asc" },
     }),
     prisma.reminder.count({ where: { status: "PENDING" } }),
     getBranches(),
+    getFeatures(),
   ]);
 
   const primarySalon = salons[0];
@@ -38,6 +40,7 @@ export default async function DashboardLayout({
       }))}
       pendingReminderCount={pendingReminderCount}
       branches={branches}
+      features={features}
     >
       {children}
     </DashboardShell>

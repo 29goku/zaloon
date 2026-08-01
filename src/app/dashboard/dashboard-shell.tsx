@@ -18,6 +18,7 @@ import {
 import { Menu } from "lucide-react";
 import type { SalonLocation } from "@/components/sidebar/location-switcher";
 import type { Branch } from "@/app/actions/branches";
+import type { Features } from "@/lib/feature-flags";
 
 function TodayDate() {
   const now = new Date();
@@ -51,12 +52,14 @@ export function DashboardShell({
   salonLocations = [],
   pendingReminderCount = 0,
   branches = [],
+  features,
 }: {
   children: React.ReactNode;
   salonName: string;
   salonLocations?: SalonLocation[];
   pendingReminderCount?: number;
   branches?: Branch[];
+  features?: Features;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -69,6 +72,7 @@ export function DashboardShell({
             salonName={salonName}
             salonLocations={salonLocations}
             pendingReminderCount={pendingReminderCount}
+            features={features}
           />
         </div>
 
@@ -90,6 +94,7 @@ export function DashboardShell({
                   salonLocations={salonLocations}
                   pendingReminderCount={pendingReminderCount}
                   onClose={() => setSheetOpen(false)}
+                  features={features}
                 />
               </SheetContent>
             </Sheet>
