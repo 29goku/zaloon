@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type { StaffBookingSetting } from "@/app/actions/settings";
 import { saveStaffBookingSettings } from "@/app/actions/settings";
+import { Check, Loader2 } from "lucide-react";
 
 interface StaffMember {
   id: string;
@@ -23,8 +24,10 @@ export function StaffBookingSettingsClient({ staff, initialSettings }: Props) {
   const router = useRouter();
   const [settings, setSettings] = useState<Record<string, StaffBookingSetting>>(initialSettings);
   const [isPending, startTransition] = useTransition();
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track whether this is the first render (skip auto-save on mount)
+  const isFirstRender = useRef(true);
 
   function getSetting(staffId: string): StaffBookingSetting {
     return settings[staffId] ?? DEFAULT_SETTING;
@@ -35,22 +38,29 @@ export function StaffBookingSettingsClient({ staff, initialSettings }: Props) {
       ...prev,
       [staffId]: { ...getSetting(staffId), ...patch },
     }));
-    setSaveSuccess(false);
   }
 
-  function handleSave() {
-    setSaveError(null);
-    setSaveSuccess(false);
-    startTransition(async () => {
-      const res = await saveStaffBookingSettings(settings);
-      if (res.success) {
-        setSaveSuccess(true);
-        router.refresh();
-      } else {
-        setSaveError(res.error ?? "Failed to save");
-      }
-    });
-  }
+  // Auto-save with 600ms debounce whenever settings change
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      startTransition(async () => {
+        const res = await saveStaffBookingSettings(settings);
+        if (res.success) {
+          setSavedAt(Date.now());
+          router.refresh();
+        }
+      });
+    }, 600);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings]);
 
   if (staff.length === 0) {
     return (
@@ -132,20 +142,20 @@ export function StaffBookingSettingsClient({ staff, initialSettings }: Props) {
         );
       })}
 
-      {/* Save */}
-      <div className="flex items-center justify-between gap-4 pt-2">
-        <div>
-          {saveError && <p className="text-sm text-destructive">{saveError}</p>}
-          {saveSuccess && <p className="text-sm text-green-700 dark:text-green-400">Settings saved.</p>}
-        </div>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={isPending}
-          className="h-10 px-6 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
-        >
-          {isPending ? "Saving…" : "Save"}
-        </button>
+      {/* Auto-save status */}
+      <div className="flex items-center justify-end gap-2 pt-1 h-6">
+        {isPending && (
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            Saving…
+          </span>
+        )}
+        {!isPending && savedAt !== null && (
+          <span className="flex items-center gap-1.5 text-xs text-green-700 dark:text-green-400">
+            <Check className="w-3.5 h-3.5" />
+            Saved
+          </span>
+        )}
       </div>
     </div>
   );
