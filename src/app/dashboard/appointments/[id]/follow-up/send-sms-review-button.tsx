@@ -33,7 +33,7 @@ export function SendSmsReviewButton({
     const result = await sendDirectMessage({
       clientId: clientId ?? undefined,
       appointmentId,
-      type: "SMS",
+      type: "WHATSAPP",
       message,
     });
 
@@ -52,7 +52,7 @@ export function SendSmsReviewButton({
     return (
       <div className="flex items-center gap-2 text-sm text-primary py-2">
         <Check className="w-4 h-4" />
-        Review link sent via SMS!
+        Review link sent via WhatsApp!
       </div>
     );
   }
@@ -74,7 +74,7 @@ export function SendSmsReviewButton({
         ) : (
           <>
             <MessageSquare className="w-3.5 h-3.5" />
-            Send via SMS
+            Send via WhatsApp
           </>
         )}
       </Button>

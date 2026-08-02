@@ -31,7 +31,7 @@ export function QuickClientCampaignDialog({
   clientCount,
 }: QuickClientCampaignDialogProps) {
   const router = useRouter();
-  const [channel, setChannel] = React.useState<"SMS" | "EMAIL">("SMS");
+  const [channel, setChannel] = React.useState<"WHATSAPP" | "EMAIL">("WHATSAPP");
   const [message, setMessage] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -94,7 +94,7 @@ export function QuickClientCampaignDialog({
           <div className="flex flex-col gap-1.5">
             <Label>Channel</Label>
             <div className="flex gap-2">
-              {(["SMS", "EMAIL"] as const).map((ch) => (
+              {(["WHATSAPP", "EMAIL"] as const).map((ch) => (
                 <label
                   key={ch}
                   className={`flex-1 flex items-center justify-center p-2.5 rounded-xl border cursor-pointer text-sm font-medium transition-colors ${
@@ -110,7 +110,7 @@ export function QuickClientCampaignDialog({
                     checked={channel === ch}
                     onChange={() => setChannel(ch)}
                   />
-                  {ch === "SMS" ? "SMS" : "Email"}
+                  {ch === "WHATSAPP" ? "WhatsApp" : "Email"}
                 </label>
               ))}
             </div>
@@ -128,15 +128,9 @@ export function QuickClientCampaignDialog({
             />
             <div className="flex items-center justify-between">
               <span />
-              <p
-                className={`text-xs tabular-nums ${
-                  message.length > 160 && channel === "SMS"
-                    ? "text-amber-600 dark:text-amber-400"
-                    : "text-muted-foreground"
-                }`}
-              >
+              <p className="text-xs tabular-nums text-muted-foreground">
                 {message.length}
-                {channel === "SMS" ? " / 160" : ""}
+                {channel === "WHATSAPP" ? " / 4096" : ""}
               </p>
             </div>
           </div>

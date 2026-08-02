@@ -63,7 +63,7 @@ export function RuleForm({ rule, onClose, onSaved, templates = [] }: RuleFormPro
 
   const [name, setName] = useState(rule?.name ?? "");
   const [trigger, setTrigger] = useState(rule?.trigger ?? "appointment_created");
-  const [channel, setChannel] = useState(rule?.channel ?? "SMS");
+  const [channel, setChannel] = useState(rule?.channel ?? "WHATSAPP");
   const [timing, setTiming] = useState(rule?.timing ?? "24h_before");
   const [messageTemplate, setMessageTemplate] = useState(
     rule?.messageTemplate ??

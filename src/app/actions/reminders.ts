@@ -889,11 +889,11 @@ export async function generateNotifications(): Promise<Notification[]> {
 export async function loadNotificationPrefs(): Promise<NotificationPrefs> {
   const defaults: NotificationPrefs = {
     remind24h: true,
-    remind24hChannel: "SMS",
+    remind24hChannel: "WHATSAPP",
     remind2h: true,
-    remind2hChannel: "SMS",
+    remind2hChannel: "WHATSAPP",
     remind1h: false,
-    remind1hChannel: "SMS",
+    remind1hChannel: "WHATSAPP",
     followUpAfterVisit: false,
     rebookingReminder: false,
     rebookingDays: 30,

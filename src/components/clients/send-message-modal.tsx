@@ -36,7 +36,7 @@ export function SendMessageModal({
   clientPhone,
   onClose,
 }: SendMessageModalProps) {
-  const [channel, setChannel] = useState<Channel>("SMS");
+  const [channel, setChannel] = useState<Channel>("WHATSAPP");
   const [template, setTemplate] = useState<string>("Custom");
   const [message, setMessage] = useState("");
   const [error, setError] = useState<string | null>(null);

@@ -40,7 +40,7 @@ export function ThankYouButton({
     const result = await sendDirectMessage({
       clientId: clientId ?? undefined,
       appointmentId,
-      type: "SMS",
+      type: "WHATSAPP",
       message: message.trim(),
     });
 
@@ -117,7 +117,7 @@ export function ThankYouButton({
 
       {error && <p className="text-xs text-destructive">{error}</p>}
       <p className="text-xs text-muted-foreground">
-        Sends via SMS. You can edit the message before sending.
+        Sends via WhatsApp. You can edit the message before sending.
       </p>
     </div>
   );

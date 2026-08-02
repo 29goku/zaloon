@@ -60,7 +60,7 @@ export async function GET(request: Request) {
     const clientEmail = apptClient?.email ?? standaloneClient?.email ?? null;
     const clientName = apptClient?.name ?? standaloneClient?.name ?? "Valued Client";
 
-    if (clientEmail && (reminder.type === "EMAIL" || reminder.type === "SMS")) {
+    if (clientEmail && (reminder.type === "EMAIL" || reminder.type === "SMS" || reminder.type === "WHATSAPP")) {
       const subject = "Appointment Reminder";
       const html = `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">

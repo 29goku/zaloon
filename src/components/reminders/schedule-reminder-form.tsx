@@ -42,7 +42,7 @@ export function ScheduleReminderForm({
   onSuccess,
 }: ScheduleReminderFormProps) {
   const [apptId, setApptId] = React.useState(initialAppointmentId ?? "");
-  const [channel, setChannel] = React.useState<string>("SMS");
+  const [channel, setChannel] = React.useState<string>("WHATSAPP");
   const [hours, setHours] = React.useState<string>("24");
   const [submitting, setSubmitting] = React.useState(false);
 
@@ -61,7 +61,7 @@ export function ScheduleReminderForm({
       if (result.success) {
         toast.success("Reminder scheduled!", `Will send via ${channel} ${hours}h before the appointment.`);
         if (!initialAppointmentId) setApptId("");
-        setChannel("SMS");
+        setChannel("WHATSAPP");
         setHours("24");
         onSuccess?.(result.id);
       } else {

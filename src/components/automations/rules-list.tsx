@@ -15,7 +15,7 @@ const TEMPLATES = [
   {
     name: "Appointment reminder (24h)",
     trigger: "appointment_created",
-    channel: "SMS",
+    channel: "WHATSAPP",
     timing: "24h_before",
     messageTemplate:
       "Hi {client_name}! Reminder: your appointment is tomorrow ({appointment_date}) at {appointment_time} at {salon_name}. Reply STOP to unsubscribe.",
@@ -25,7 +25,7 @@ const TEMPLATES = [
   {
     name: "Appointment reminder (2h)",
     trigger: "appointment_created",
-    channel: "SMS",
+    channel: "WHATSAPP",
     timing: "1h_before",
     messageTemplate:
       "Hi {client_name}! Your appointment at {salon_name} is in 2 hours — at {appointment_time} today. See you soon! 💇",
@@ -35,7 +35,7 @@ const TEMPLATES = [
   {
     name: "Thank you message",
     trigger: "appointment_completed",
-    channel: "SMS",
+    channel: "WHATSAPP",
     timing: "1h_after",
     messageTemplate:
       "Thank you for visiting {salon_name}, {client_name}! We hope you love your {service_name}. Leave us a review — we'd love to hear from you!",
@@ -45,7 +45,7 @@ const TEMPLATES = [
   {
     name: "Re-booking prompt",
     trigger: "appointment_completed",
-    channel: "SMS",
+    channel: "WHATSAPP",
     timing: "30d_after",
     messageTemplate:
       "Hi {client_name}! It's been a while since your last visit at {salon_name}. Ready for a refresh? Book your next appointment today!",
@@ -55,7 +55,7 @@ const TEMPLATES = [
   {
     name: "Birthday greeting",
     trigger: "birthday",
-    channel: "SMS",
+    channel: "WHATSAPP",
     timing: "immediate",
     messageTemplate:
       "Happy Birthday, {client_name}! 🎂 The team at {salon_name} wishes you a wonderful day. Treat yourself — book a special appointment today!",

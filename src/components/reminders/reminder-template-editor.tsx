@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Phone, Mail, Eye, X } from "lucide-react";
+import { MessageSquare, Mail, Phone, Eye, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -45,7 +45,7 @@ function SmsPreview({ message, onClose }: { message: string; onClose: () => void
         <div className="bg-zinc-900 px-4 pt-6 pb-8 flex flex-col items-center gap-4">
           <div className="flex items-center gap-2">
             <Phone className="w-4 h-4 text-zinc-400" />
-            <span className="text-xs text-zinc-400 font-medium">SMS Preview</span>
+            <span className="text-xs text-zinc-400 font-medium">WhatsApp Preview</span>
           </div>
           {/* Phone body */}
           <div className="w-48 rounded-2xl bg-zinc-800 border border-zinc-700 px-3 py-4 space-y-3">
@@ -69,9 +69,9 @@ function SmsPreview({ message, onClose }: { message: string; onClose: () => void
         <div className="px-4 py-3 border-t border-border text-center">
           <p className="text-xs text-muted-foreground">
             {preview.length} characters
-            {preview.length > 160 && (
+            {preview.length > 4096 && (
               <span className="ml-1 text-amber-500 font-medium">
-                — will be split into {Math.ceil(preview.length / 160)} SMS parts
+                — exceeds WhatsApp 4096 character limit
               </span>
             )}
           </p>
@@ -151,7 +151,7 @@ function TestSendModal({
   onClose,
 }: {
   message: string;
-  channel: "SMS" | "EMAIL";
+  channel: "WHATSAPP" | "EMAIL";
   onClose: () => void;
 }) {
   return (
@@ -197,7 +197,7 @@ function TestSendModal({
 
 interface ReminderTemplateEditorProps {
   initialValue?: string;
-  channel?: "SMS" | "EMAIL";
+  channel?: "WHATSAPP" | "EMAIL";
   onSave?: (message: string) => void;
   className?: string;
 }
@@ -206,18 +206,18 @@ interface ReminderTemplateEditorProps {
 
 export function ReminderTemplateEditor({
   initialValue = "",
-  channel = "SMS",
+  channel = "WHATSAPP",
   onSave,
   className,
 }: ReminderTemplateEditorProps) {
   const [message, setMessage] = React.useState(initialValue);
-  const [activeChannel, setActiveChannel] = React.useState<"SMS" | "EMAIL">(channel);
+  const [activeChannel, setActiveChannel] = React.useState<"WHATSAPP" | "EMAIL">(channel);
   const [preview, setPreview] = React.useState<"sms" | "email" | "test" | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
-  const MAX_SMS = 160;
+  const MAX_WHATSAPP = 4096;
   const charCount = message.length;
-  const overLimit = activeChannel === "SMS" && charCount > MAX_SMS;
+  const overLimit = activeChannel === "WHATSAPP" && charCount > MAX_WHATSAPP;
 
   // Insert a merge tag at the current cursor position
   function insertTag(tag: string) {
@@ -259,7 +259,7 @@ export function ReminderTemplateEditor({
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-foreground">Template Editor</h3>
           <div className="flex gap-1 rounded-lg border border-border p-0.5">
-            {(["SMS", "EMAIL"] as const).map((ch) => (
+            {(["WHATSAPP", "EMAIL"] as const).map((ch) => (
               <button
                 key={ch}
                 type="button"
@@ -271,12 +271,12 @@ export function ReminderTemplateEditor({
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                {ch === "SMS" ? (
-                  <Phone className="w-3 h-3" />
+                {ch === "WHATSAPP" ? (
+                  <MessageSquare className="w-3 h-3" />
                 ) : (
                   <Mail className="w-3 h-3" />
                 )}
-                {ch}
+                {ch === "WHATSAPP" ? "WhatsApp" : "Email"}
               </button>
             ))}
           </div>
@@ -308,7 +308,7 @@ export function ReminderTemplateEditor({
             onChange={(e) => setMessage(e.target.value)}
             rows={activeChannel === "EMAIL" ? 8 : 4}
             placeholder={
-              activeChannel === "SMS"
+              activeChannel === "WHATSAPP"
                 ? "Hi {{clientName}}! Reminder for your appointment at {{salonName}} on {{date}} at {{time}}."
                 : "Dear {{clientName}},\n\nThis is a reminder for your upcoming appointment at {{salonName}}.\n\nDate: {{date}}\nTime: {{time}}\nStaff: {{staffName}}\nServices: {{services}}\n\nWe look forward to seeing you!"
             }
@@ -320,15 +320,15 @@ export function ReminderTemplateEditor({
           />
           <div className="flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
-              {activeChannel === "SMS" && (
+              {activeChannel === "WHATSAPP" && (
                 <>
-                  {charCount > MAX_SMS ? (
+                  {charCount > MAX_WHATSAPP ? (
                     <span className="text-red-500 font-medium">
-                      {charCount} / {MAX_SMS} — splits into {Math.ceil(charCount / MAX_SMS)} parts
+                      {charCount} / {MAX_WHATSAPP} — exceeds WhatsApp limit
                     </span>
                   ) : (
-                    <span className={charCount > MAX_SMS * 0.85 ? "text-amber-500" : ""}>
-                      {charCount} / {MAX_SMS} characters
+                    <span className={charCount > MAX_WHATSAPP * 0.85 ? "text-amber-500" : ""}>
+                      {charCount} / {MAX_WHATSAPP} characters
                     </span>
                   )}
                 </>
@@ -347,7 +347,7 @@ export function ReminderTemplateEditor({
             variant="outline"
             size="sm"
             className="gap-1.5"
-            onClick={() => setPreview(activeChannel === "SMS" ? "sms" : "email")}
+            onClick={() => setPreview(activeChannel === "WHATSAPP" ? "sms" : "email")}
           >
             <Eye className="w-3.5 h-3.5" />
             Preview {activeChannel}

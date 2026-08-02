@@ -14,7 +14,7 @@ const TRIGGER_DESCRIPTIONS = [
     desc: "Send a confirmation as soon as a new appointment is created.",
     icon: "📅",
     timing: "immediate",
-    channel: "SMS",
+    channel: "WHATSAPP",
     template:
       "Hi {client_name}! Your appointment at {salon_name} is confirmed for {appointment_date} at {appointment_time}. See you soon!",
   },
@@ -24,7 +24,7 @@ const TRIGGER_DESCRIPTIONS = [
     desc: "Remind clients the day before their appointment to reduce no-shows.",
     icon: "⏰",
     timing: "24h_before",
-    channel: "SMS",
+    channel: "WHATSAPP",
     template:
       "Hi {client_name}! Reminder: your appointment at {salon_name} is tomorrow at {appointment_time}. Reply STOP to unsubscribe.",
   },
@@ -34,7 +34,7 @@ const TRIGGER_DESCRIPTIONS = [
     desc: "Send a thank-you message after a completed appointment and request a review.",
     icon: "🙏",
     timing: "1h_after",
-    channel: "SMS",
+    channel: "WHATSAPP",
     template:
       "Thank you for visiting {salon_name}, {client_name}! We hope you love your {service_name}. Leave us a review — we'd love to hear from you!",
   },
@@ -44,7 +44,7 @@ const TRIGGER_DESCRIPTIONS = [
     desc: "Automatically wish clients a happy birthday with a special offer.",
     icon: "🎂",
     timing: "immediate",
-    channel: "SMS",
+    channel: "WHATSAPP",
     template:
       "Happy Birthday, {client_name}! 🎂 The team at {salon_name} wishes you a wonderful day. Treat yourself — book a special appointment today!",
   },
@@ -54,7 +54,7 @@ const TRIGGER_DESCRIPTIONS = [
     desc: "Re-engage clients who haven't visited in 60 days.",
     icon: "🔄",
     timing: "30d_after",
-    channel: "SMS",
+    channel: "WHATSAPP",
     template:
       "Hi {client_name}! We miss you at {salon_name}! It's been a while — book your next appointment and enjoy a special welcome-back offer.",
   },
@@ -64,7 +64,7 @@ const TRIGGER_DESCRIPTIONS = [
     desc: "Remind clients 7 days before their membership expires.",
     icon: "💳",
     timing: "7d_after",
-    channel: "SMS",
+    channel: "WHATSAPP",
     template:
       "Hi {client_name}! Your {salon_name} membership expires soon. Renew now to keep enjoying your exclusive benefits and discounts.",
   },

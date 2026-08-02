@@ -28,7 +28,7 @@ export async function createWinBackCampaign(
         name: campaignName,
         type: "WIN_BACK",
         status: "DRAFT",
-        channel: "SMS",
+        channel: "WHATSAPP",
         message,
         targetFilter: JSON.stringify({ clientIds }),
         recipientCount: clientIds.length,

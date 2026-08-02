@@ -50,7 +50,7 @@ export function QuickMessageDialog({ children }: QuickMessageDialogProps) {
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Form
-  const [channel, setChannel] = useState<"SMS" | "EMAIL">("SMS");
+  const [channel, setChannel] = useState<"WHATSAPP" | "EMAIL">("WHATSAPP");
   const [message, setMessage] = useState("");
   const [scheduleMode, setScheduleMode] = useState(false);
   const [scheduledAt, setScheduledAt] = useState("");
@@ -100,7 +100,7 @@ export function QuickMessageDialog({ children }: QuickMessageDialogProps) {
     setClientQuery("");
     setClientResults([]);
     setSelectedClient(null);
-    setChannel("SMS");
+    setChannel("WHATSAPP");
     setMessage("");
     setScheduleMode(false);
     setScheduledAt("");
@@ -148,7 +148,7 @@ export function QuickMessageDialog({ children }: QuickMessageDialogProps) {
     });
   }
 
-  const charLimit = channel === "SMS" ? 160 : 2000;
+  const charLimit = channel === "EMAIL" ? 2000 : 4096;
   const charCount = message.length;
 
   return (
@@ -241,7 +241,7 @@ export function QuickMessageDialog({ children }: QuickMessageDialogProps) {
                 Channel
               </Label>
               <div className="flex gap-2">
-                {(["SMS", "EMAIL"] as const).map((ch) => (
+                {(["WHATSAPP", "EMAIL"] as const).map((ch) => (
                   <button
                     key={ch}
                     onClick={() => setChannel(ch)}
@@ -251,8 +251,8 @@ export function QuickMessageDialog({ children }: QuickMessageDialogProps) {
                         : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
                     }`}
                   >
-                    {ch === "SMS" ? <MessageSquare className="w-3.5 h-3.5" /> : <Mail className="w-3.5 h-3.5" />}
-                    {ch}
+                    {ch === "WHATSAPP" ? <MessageSquare className="w-3.5 h-3.5" /> : <Mail className="w-3.5 h-3.5" />}
+                    {ch === "WHATSAPP" ? "WhatsApp" : "Email"}
                   </button>
                 ))}
               </div>

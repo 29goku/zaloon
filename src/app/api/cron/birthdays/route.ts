@@ -66,7 +66,7 @@ export async function GET(request: Request) {
     const existing = await prisma.reminder.findFirst({
       where: {
         clientId: client.id,
-        type: "SMS",
+        type: "WHATSAPP",
         scheduledAt: {
           gte: todayStart,
           lte: todayEnd,
@@ -88,7 +88,7 @@ export async function GET(request: Request) {
         salonId: salon.id,
         clientId: client.id,
         appointmentId: null,
-        type: "SMS",
+        type: "WHATSAPP",
         status: "PENDING",
         message,
         scheduledAt,

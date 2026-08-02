@@ -63,7 +63,7 @@ export function SendMessageForm({
   compact = false,
   templates = [],
 }: SendMessageFormProps) {
-  const [channel, setChannel] = React.useState<Channel>("SMS");
+  const [channel, setChannel] = React.useState<Channel>("WHATSAPP");
   const [message, setMessage] = React.useState(initialMessage);
   const [submitting, setSubmitting] = React.useState(false);
   const [previewOpen, setPreviewOpen] = React.useState(false);

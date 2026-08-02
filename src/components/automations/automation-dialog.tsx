@@ -64,8 +64,8 @@ export function AutomationDialog({ rule, onSaved, children }: AutomationDialogPr
 
   const [name, setName] = useState(rule?.name ?? "");
   const [trigger, setTrigger] = useState(rule?.trigger ?? "appointment_created");
-  const [channel, setChannel] = useState<"SMS" | "EMAIL">(
-    (rule?.channel as "SMS" | "EMAIL") ?? "SMS"
+  const [channel, setChannel] = useState<"WHATSAPP" | "EMAIL">(
+    (rule?.channel as "WHATSAPP" | "EMAIL") ?? "WHATSAPP"
   );
   const [timing, setTiming] = useState(rule?.timing ?? "immediate");
   const [messageTemplate, setMessageTemplate] = useState(rule?.messageTemplate ?? "");
@@ -107,7 +107,7 @@ export function AutomationDialog({ rule, onSaved, children }: AutomationDialogPr
       // Reset to rule values when opening
       setName(rule?.name ?? "");
       setTrigger(rule?.trigger ?? "appointment_created");
-      setChannel((rule?.channel as "SMS" | "EMAIL") ?? "SMS");
+      setChannel((rule?.channel as "WHATSAPP" | "EMAIL") ?? "WHATSAPP");
       setTiming(rule?.timing ?? "immediate");
       setMessageTemplate(rule?.messageTemplate ?? "");
       setIsActive(rule?.isActive ?? true);
@@ -179,7 +179,7 @@ export function AutomationDialog({ rule, onSaved, children }: AutomationDialogPr
               Channel
             </Label>
             <div className="flex gap-2">
-              {(["SMS", "EMAIL"] as const).map((ch) => (
+              {(["WHATSAPP", "EMAIL"] as const).map((ch) => (
                 <button
                   key={ch}
                   onClick={() => setChannel(ch)}

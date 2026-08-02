@@ -733,45 +733,49 @@ export function StaffOnboardingWizard({ services, existingStaff }: Props) {
     setSubmitting(true);
     setSubmitError(null);
 
-    // Build schedule array (convert wizard index → dayOfWeek)
-    const scheduleArr = schedule
-      .map((d, i) =>
-        d.working
-          ? { dayOfWeek: DAYS_DOW[i], startTime: d.startTime, endTime: d.endTime }
-          : null
-      )
-      .filter(Boolean) as { dayOfWeek: number; startTime: string; endTime: string }[];
+    try {
+      // Build schedule array (convert wizard index → dayOfWeek)
+      const scheduleArr = schedule
+        .map((d, i) =>
+          d.working
+            ? { dayOfWeek: DAYS_DOW[i], startTime: d.startTime, endTime: d.endTime }
+            : null
+        )
+        .filter(Boolean) as { dayOfWeek: number; startTime: string; endTime: string }[];
 
-    // Build services array
-    const servicesArr = Object.entries(selection)
-      .filter(([, v]) => v.selected)
-      .map(([serviceId, v]) => ({
-        serviceId,
-        ...(v.commissionOverride !== undefined && {
-          commissionOverridePct: v.commissionOverride,
-        }),
-      }));
+      // Build services array
+      const servicesArr = Object.entries(selection)
+        .filter(([, v]) => v.selected)
+        .map(([serviceId, v]) => ({
+          serviceId,
+          ...(v.commissionOverride !== undefined && {
+            commissionOverridePct: v.commissionOverride,
+          }),
+        }));
 
-    const result = await createStaffMember({
-      name: basicInfo.name.trim(),
-      phone: basicInfo.phone.trim() || undefined,
-      role: basicInfo.role.trim() || undefined,
-      commissionPct: basicInfo.commissionPct,
-      avatarColor: basicInfo.avatarColor,
-      photo: basicInfo.photo,
-      schedule: scheduleArr,
-      services: servicesArr,
-    });
+      const result = await createStaffMember({
+        name: basicInfo.name.trim(),
+        phone: basicInfo.phone.trim() || undefined,
+        role: basicInfo.role.trim() || undefined,
+        commissionPct: basicInfo.commissionPct,
+        avatarColor: basicInfo.avatarColor,
+        photo: basicInfo.photo,
+        schedule: scheduleArr,
+        services: servicesArr,
+      });
 
-    setSubmitting(false);
+      if (!result.success) {
+        setSubmitError(result.error);
+        return;
+      }
 
-    if (!result.success) {
-      setSubmitError(result.error);
-      return;
+      router.push(`/dashboard/staff/${result.id}`);
+      router.refresh();
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
-
-    router.push(`/dashboard/staff/${result.id}`);
-    router.refresh();
   }
 
   return (

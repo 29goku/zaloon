@@ -419,7 +419,7 @@ export async function markNoShow(
             salonId: salon.id,
             appointmentId: id,
             clientId: appointment.clientId ?? null,
-            type: "SMS",
+            type: "WHATSAPP",
             status: "PENDING",
             message: "We missed you today! Would you like to reschedule?",
             scheduledAt: new Date(),
@@ -525,7 +525,7 @@ export async function checkoutAppointment(
       return inv;
     });
 
-    // Auto-schedule a thank-you SMS reminder (sent immediately)
+    // Auto-schedule a thank-you WhatsApp reminder (sent immediately)
     try {
       const now = new Date();
       const scheduledAt = new Date(now.getTime() + 60 * 60 * 1000); // now + 1 hour
@@ -534,7 +534,7 @@ export async function checkoutAppointment(
           id: randomUUID(),
           salonId: salon.id,
           appointmentId: id,
-          type: "SMS",
+          type: "WHATSAPP",
           status: "SENT",
           message: `Thank you for visiting ${salon.name}! We hope to see you again soon.`,
           scheduledAt,
@@ -1186,7 +1186,7 @@ async function generateRemindersForAppointment(
         salonId,
         appointmentId,
         clientId: appointment.clientId ?? null,
-        type: "SMS",
+        type: "WHATSAPP",
         message: `[${type}] ${message}`,
         scheduledAt,
         status: "PENDING",

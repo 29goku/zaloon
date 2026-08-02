@@ -30,6 +30,7 @@ import { getTimeEntries } from "@/app/actions/timetracking";
 import { getStaffUnavailability, getStaffGoals } from "@/app/actions/settings";
 import { calculateAchievements, ACHIEVEMENTS, TIER_POINTS } from "@/lib/achievements";
 import { StaffAvatarUpload } from "@/components/staff/staff-avatar-upload";
+import { DeleteStaffButton } from "@/components/staff/delete-staff-button";
 
 export const dynamic = "force-dynamic";
 
@@ -349,13 +350,14 @@ export default async function StaffDetailPage({
                 </div>
 
                 {/* Edit panel (client component) */}
-                <div className="mt-3">
+                <div className="mt-3 flex flex-wrap items-center gap-3">
                   <StaffEditPanel
                     staffId={staff.id}
                     initialName={staff.name}
                     initialPhone={staff.phone}
                     initialCommissionPct={staff.commissionPct}
                   />
+                  <DeleteStaffButton staffId={staff.id} staffName={staff.name} />
                 </div>
               </div>
             </div>
