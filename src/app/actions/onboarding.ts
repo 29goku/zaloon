@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 // ── updateSalonProfile ─────────────────────────────────────────────────────
 
@@ -29,19 +30,18 @@ export async function updateSalonProfile(
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     // Check slug uniqueness (excluding current salon)
     const slugConflict = await prisma.salon.findFirst({
-      where: { slug: parsed.data.slug, id: { not: salon.id } },
+      where: { slug: parsed.data.slug, id: { not: salonId } },
     });
     if (slugConflict) {
       return { success: false, error: "This URL slug is already taken. Please choose another." };
     }
 
     await prisma.salon.update({
-      where: { id: salon.id },
+      where: { id: salonId },
       data: {
         name: parsed.data.name,
         slug: parsed.data.slug,
@@ -81,19 +81,18 @@ export async function bulkCreateServices(
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     // Find or create category
     let category = await prisma.serviceCategory.findFirst({
-      where: { salonId: salon.id, name: parsed.data.categoryName },
+      where: { salonId, name: parsed.data.categoryName },
     });
 
     if (!category) {
       category = await prisma.serviceCategory.create({
         data: {
           id: randomUUID(),
-          salonId: salon.id,
+          salonId,
           name: parsed.data.categoryName,
         },
       });
@@ -103,7 +102,7 @@ export async function bulkCreateServices(
     for (const svc of parsed.data.services) {
       // Skip if already exists with same name
       const existing = await prisma.service.findFirst({
-        where: { salonId: salon.id, name: svc.name },
+        where: { salonId, name: svc.name },
       });
       if (existing) {
         serviceIds.push(existing.id);
@@ -113,7 +112,7 @@ export async function bulkCreateServices(
       const created = await prisma.service.create({
         data: {
           id: randomUUID(),
-          salonId: salon.id,
+          salonId,
           categoryId: category.id,
           name: svc.name,
           price: svc.price,
@@ -146,13 +145,12 @@ export async function createOnboardingStaff(
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const staff = await prisma.staff.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         name: parsed.data.name,
         phone: parsed.data.phone ?? null,
         commissionPct: 0,

@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 type Tx = Prisma.TransactionClient;
 
@@ -84,7 +85,11 @@ export type ShiftRow = {
 };
 
 export async function getAllShifts(): Promise<Record<string, ShiftRow[]>> {
-  const shifts = await prisma.shift.findMany({ orderBy: { dayOfWeek: "asc" } });
+  const salonId = await getCurrentSalonId();
+  const shifts = await prisma.shift.findMany({
+    where: { Staff: { salonId } },
+    orderBy: { dayOfWeek: "asc" },
+  });
   const map: Record<string, ShiftRow[]> = {};
   for (const s of shifts) {
     if (!map[s.staffId]) map[s.staffId] = [];
@@ -148,7 +153,8 @@ export async function applyShiftToAll(
     return { success: false, error: "startTime and endTime are required" };
 
   try {
-    const allStaff = await prisma.staff.findMany({ select: { id: true } });
+    const salonId = await getCurrentSalonId();
+    const allStaff = await prisma.staff.findMany({ where: { salonId }, select: { id: true } });
 
     await prisma.$transaction(async (tx: Tx) => {
       for (const staff of allStaff) {
@@ -396,7 +402,8 @@ const STANDARD_WEEK: Array<{
 
 export async function setStandardWeek(): Promise<Result> {
   try {
-    const allStaff = await prisma.staff.findMany({ select: { id: true } });
+    const salonId = await getCurrentSalonId();
+    const allStaff = await prisma.staff.findMany({ where: { salonId }, select: { id: true } });
 
     await prisma.$transaction(async (tx: Tx) => {
       for (const staff of allStaff) {

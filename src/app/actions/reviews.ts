@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { parseReviewContent, RESPONSE_SEPARATOR, FLAGGED_MARKER } from "@/lib/review-utils";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -84,10 +85,7 @@ export async function createReview(
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) {
-      return { success: false, error: "No salon found" };
-    }
+    const salonId = await getCurrentSalonId();
 
     // Prevent duplicate review for the same appointment
     if (appointmentId) {
@@ -102,7 +100,7 @@ export async function createReview(
     const review = await prisma.review.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         clientId: clientId ?? null,
         appointmentId: appointmentId ?? null,
         rating,
@@ -126,8 +124,10 @@ export async function getReviews(filter?: {
   staffId?: string;
   minRating?: number;
 }): Promise<ReviewWithRelations[]> {
+  const salonId = await getCurrentSalonId();
   return prisma.review.findMany({
     where: {
+      salonId,
       ...(filter?.staffId ? { staffId: filter.staffId } : {}),
       ...(filter?.minRating ? { rating: { gte: filter.minRating } } : {}),
     },
@@ -159,9 +159,10 @@ export async function deleteReview(
 // ─── getAverageRating ─────────────────────────────────────────────────────────
 
 export async function getAverageRating(staffId?: string): Promise<number | null> {
+  const salonId = await getCurrentSalonId();
   const result = await prisma.review.aggregate({
     _avg: { rating: true },
-    where: staffId ? { staffId } : {},
+    where: staffId ? { salonId, staffId } : { salonId },
   });
   return result._avg.rating;
 }
@@ -169,8 +170,10 @@ export async function getAverageRating(staffId?: string): Promise<number | null>
 // ─── getRatingDistribution ────────────────────────────────────────────────────
 
 export async function getRatingDistribution(): Promise<Record<number, number>> {
+  const salonId = await getCurrentSalonId();
   const counts = await prisma.review.groupBy({
     by: ["rating"],
+    where: { salonId },
     _count: { rating: true },
   });
 

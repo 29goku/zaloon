@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 import type { PurchaseOrder } from "@/lib/inventory-types";
 import { RETAIL_CATEGORY } from "@/lib/inventory-types";
 
@@ -71,13 +72,12 @@ export async function createItem(data: {
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const item = await prisma.inventoryItem.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         name: parsed.data.name,
         category: parsed.data.category,
         sku: parsed.data.sku ?? null,
@@ -200,12 +200,11 @@ export async function getInventory(filter?: {
   search?: string;
 }) {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return [];
+    const salonId = await getCurrentSalonId();
 
     const items = await prisma.inventoryItem.findMany({
       where: {
-        salonId: salon.id,
+        salonId,
         ...(filter?.category && filter.category !== "ALL" && {
           category: filter.category as Category,
         }),
@@ -235,11 +234,10 @@ export async function getInventory(filter?: {
 
 export async function getLowStockItems() {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return [];
+    const salonId = await getCurrentSalonId();
 
     const items = await prisma.inventoryItem.findMany({
-      where: { salonId: salon.id },
+      where: { salonId },
       orderBy: { quantity: "asc" },
     });
 
@@ -277,12 +275,11 @@ export async function getInventoryItems(filter?: {
   search?: string;
 }) {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return [];
+    const salonId = await getCurrentSalonId();
 
     const items = await prisma.inventoryItem.findMany({
       where: {
-        salonId: salon.id,
+        salonId,
         ...(filter?.category && filter.category !== "ALL" && {
           category: filter.category as Category,
         }),
@@ -390,12 +387,11 @@ export async function sellProduct(
 
 export async function getRetailProducts() {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return [];
+    const salonId = await getCurrentSalonId();
 
     return await prisma.inventoryItem.findMany({
       where: {
-        salonId: salon.id,
+        salonId,
         category: RETAIL_CATEGORY,
       },
       orderBy: { name: "asc" },
@@ -410,11 +406,10 @@ export async function getRetailProducts() {
 
 export async function getLowStockProducts(threshold?: number) {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return [];
+    const salonId = await getCurrentSalonId();
 
     const items = await prisma.inventoryItem.findMany({
-      where: { salonId: salon.id },
+      where: { salonId },
       orderBy: { quantity: "asc" },
     });
 
@@ -437,11 +432,10 @@ export async function getInventoryValue(): Promise<{
   items: number;
 }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { costValue: 0, retailValue: 0, items: 0 };
+    const salonId = await getCurrentSalonId();
 
     const items = await prisma.inventoryItem.findMany({
-      where: { salonId: salon.id },
+      where: { salonId },
       select: { quantity: true, costPrice: true, salePrice: true },
     });
 
@@ -483,8 +477,8 @@ export async function getProductSalesHistory(itemId: string) {
 // ── Purchase Orders ────────────────────────────────────────────────────────────
 
 async function getSalonWithOrders() {
-  const salon = await prisma.salon.findFirst();
-  if (!salon) return null;
+  const salonId = await getCurrentSalonId();
+  const salon = await prisma.salon.findUniqueOrThrow({ where: { id: salonId } });
   let bh: Record<string, unknown> = {};
   try {
     bh = salon.businessHours ? JSON.parse(salon.businessHours) : {};
@@ -639,8 +633,7 @@ export async function createRetailSale(
     return { success: false, error: "No items provided" };
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     // Validate all items exist and have sufficient stock
     const inventoryItems = await prisma.inventoryItem.findMany({
@@ -664,7 +657,7 @@ export async function createRetailSale(
     const invoiceOp = prisma.invoice.create({
       data: {
         id: invoiceId,
-        salonId: salon.id,
+        salonId,
         total,
         paymentMethod: paymentMethod.toUpperCase(),
         status: "PAID",

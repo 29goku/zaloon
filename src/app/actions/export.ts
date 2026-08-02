@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 import { objectsToCSV } from "@/lib/csv";
 
 function today(): string {
@@ -13,12 +14,11 @@ export async function exportClients(filter?: {
   vipOnly?: boolean;
   since?: string;
 }): Promise<{ filename: string; csv: string }> {
-  const salon = await prisma.salon.findFirst();
-  if (!salon) return { filename: "clients.csv", csv: "" };
+  const salonId = await getCurrentSalonId();
 
   const clients = await prisma.client.findMany({
     where: {
-      salonId: salon.id,
+      salonId,
       ...(filter?.vipOnly ? { isVip: true } : {}),
       ...(filter?.since
         ? { createdAt: { gte: new Date(filter.since) } }
@@ -95,8 +95,7 @@ export async function exportAppointments(filter: {
   to: string;
   status?: string;
 }): Promise<{ filename: string; csv: string }> {
-  const salon = await prisma.salon.findFirst();
-  if (!salon) return { filename: "appointments.csv", csv: "" };
+  const salonId = await getCurrentSalonId();
 
   const statusFilter =
     filter.status && filter.status !== "ALL"
@@ -105,7 +104,7 @@ export async function exportAppointments(filter: {
 
   const appointments = await prisma.appointment.findMany({
     where: {
-      salonId: salon.id,
+      salonId,
       date: { gte: filter.from, lte: filter.to },
       ...statusFilter,
     },
@@ -165,12 +164,12 @@ export async function exportRevenue(filter: {
   from: string;
   to: string;
 }): Promise<{ filename: string; csv: string }> {
-  const salon = await prisma.salon.findFirst();
-  if (!salon) return { filename: "revenue.csv", csv: "" };
+  const salonId = await getCurrentSalonId();
+  const salon = await prisma.salon.findUniqueOrThrow({ where: { id: salonId }, select: { invoicePrefix: true } });
 
   const invoices = await prisma.invoice.findMany({
     where: {
-      salonId: salon.id,
+      salonId,
       createdAt: {
         gte: new Date(filter.from),
         lte: new Date(filter.to + "T23:59:59Z"),
@@ -235,12 +234,11 @@ export async function exportExpenses(filter: {
   from: string;
   to: string;
 }): Promise<{ filename: string; csv: string }> {
-  const salon = await prisma.salon.findFirst();
-  if (!salon) return { filename: "expenses.csv", csv: "" };
+  const salonId = await getCurrentSalonId();
 
   const expenses = await prisma.expense.findMany({
     where: {
-      salonId: salon.id,
+      salonId,
       date: { gte: filter.from, lte: filter.to },
     },
     orderBy: { date: "asc" },
@@ -282,12 +280,11 @@ export async function exportInventory(opts?: {
   from?: string;
   to?: string;
 }): Promise<{ filename: string; csv: string }> {
-  const salon = await prisma.salon.findFirst();
-  if (!salon) return { filename: "inventory.csv", csv: "" };
+  const salonId = await getCurrentSalonId();
 
   const items = await prisma.inventoryItem.findMany({
     where: {
-      salonId: salon.id,
+      salonId,
     },
     include: {
       InventoryTransaction: opts?.includeTransactions
@@ -385,15 +382,14 @@ export async function exportPayroll(filter: {
   from: string;
   to: string;
 }): Promise<{ filename: string; csv: string }> {
-  const salon = await prisma.salon.findFirst();
-  if (!salon) return { filename: "payroll.csv", csv: "" };
+  const salonId = await getCurrentSalonId();
 
   const staff = await prisma.staff.findMany({
-    where: { salonId: salon.id },
+    where: { salonId },
     include: {
       Appointment: {
         where: {
-          salonId: salon.id,
+          salonId,
           date: { gte: filter.from, lte: filter.to },
           status: "COMPLETED",
         },
@@ -444,11 +440,10 @@ export async function exportPayroll(filter: {
 // ── Staff list ─────────────────────────────────────────────────────────────────
 
 export async function exportStaff(): Promise<{ filename: string; csv: string }> {
-  const salon = await prisma.salon.findFirst();
-  if (!salon) return { filename: "staff.csv", csv: "" };
+  const salonId = await getCurrentSalonId();
 
   const staff = await prisma.staff.findMany({
-    where: { salonId: salon.id },
+    where: { salonId },
     include: { StaffService: { include: { Service: true } } },
     orderBy: { name: "asc" },
   });

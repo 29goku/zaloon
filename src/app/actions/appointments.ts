@@ -4,6 +4,7 @@ import { z } from "zod";
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 import { checkAppointmentConflicts, type ConflictInfo } from "@/lib/conflict-detection";
 import { sendEmail } from "@/lib/email";
 
@@ -78,10 +79,7 @@ export async function createAppointment(
   const { clientId, staffId, serviceIds, serviceStaffMap, date, startTime, notes } = parsed.data;
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) {
-      return { success: false, error: "No salon found" };
-    }
+    const salonId = await getCurrentSalonId();
 
     // ── Conflict detection ────────────────────────────────────────────────────
     // First compute total duration so we can check time overlap properly
@@ -135,7 +133,7 @@ export async function createAppointment(
     const appointment = await prisma.appointment.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         clientId: clientId ?? null,
         staffId,
         date,
@@ -154,7 +152,7 @@ export async function createAppointment(
     // ── Auto-schedule reminders driven by ReminderSettings ───────────────────
     let remindersScheduled = 0;
     try {
-      remindersScheduled = await generateRemindersForAppointment(appointment.id, salon.id);
+      remindersScheduled = await generateRemindersForAppointment(appointment.id, salonId);
     } catch (reminderErr) {
       // Non-fatal: reminder failure should never block appointment creation
       console.error("[createAppointment] reminder scheduling failed", reminderErr)
@@ -411,22 +409,20 @@ export async function markNoShow(
 
     // Create a follow-up WhatsApp reminder for no-show clients
     try {
-      const salon = await prisma.salon.findFirst({ select: { id: true } });
-      if (salon) {
-        await prisma.reminder.create({
-          data: {
-            id: randomUUID(),
-            salonId: salon.id,
-            appointmentId: id,
-            clientId: appointment.clientId ?? null,
-            type: "WHATSAPP",
-            status: "PENDING",
-            message: "We missed you today! Would you like to reschedule?",
-            scheduledAt: new Date(),
-          },
-        });
-        revalidatePath("/dashboard/reminders");
-      }
+      const noShowSalonId = await getCurrentSalonId();
+      await prisma.reminder.create({
+        data: {
+          id: randomUUID(),
+          salonId: noShowSalonId,
+          appointmentId: id,
+          clientId: appointment.clientId ?? null,
+          type: "WHATSAPP",
+          status: "PENDING",
+          message: "We missed you today! Would you like to reschedule?",
+          scheduledAt: new Date(),
+        },
+      });
+      revalidatePath("/dashboard/reminders");
     } catch (reminderErr) {
       // Non-fatal
       console.error("[markNoShow] reminder creation failed", reminderErr);
@@ -473,10 +469,7 @@ export async function checkoutAppointment(
       return { success: false, error: "Invoice already exists for this appointment" };
     }
 
-    const salon = await prisma.salon.findFirst();
-    if (!salon) {
-      return { success: false, error: "No salon found" };
-    }
+    const salonId = await getCurrentSalonId();
 
     const total = finalAmount !== undefined ? finalAmount : appointment.totalAmount;
 
@@ -495,7 +488,7 @@ export async function checkoutAppointment(
       const inv = await tx.invoice.create({
         data: {
           id: randomUUID(),
-          salonId: salon.id,
+          salonId,
           clientId: appointment.clientId ?? null,
           appointmentId: id,
           total,
@@ -529,14 +522,15 @@ export async function checkoutAppointment(
     try {
       const now = new Date();
       const scheduledAt = new Date(now.getTime() + 60 * 60 * 1000); // now + 1 hour
+      const salonForName = await prisma.salon.findUnique({ where: { id: salonId }, select: { name: true } });
       await prisma.reminder.create({
         data: {
           id: randomUUID(),
-          salonId: salon.id,
+          salonId,
           appointmentId: id,
           type: "WHATSAPP",
           status: "SENT",
-          message: `Thank you for visiting ${salon.name}! We hope to see you again soon.`,
+          message: `Thank you for visiting ${salonForName?.name ?? "us"}! We hope to see you again soon.`,
           scheduledAt,
           sentAt: now,
         },

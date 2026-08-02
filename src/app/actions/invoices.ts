@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getClientTier, pointsToDiscount } from "@/lib/loyalty-tiers";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 // ─── Invoice number sequencing ────────────────────────────────────────────────
 
@@ -43,6 +44,7 @@ async function getNextInvoiceNumber(salonId: string): Promise<string> {
 export async function getInvoice(id: string) {
   if (!id) return null;
 
+  const salonId = await getCurrentSalonId();
   const [invoice, salon, invoiceCount] = await Promise.all([
     prisma.invoice.findUnique({
       where: { id },
@@ -68,7 +70,7 @@ export async function getInvoice(id: string) {
         PartialPayment: { orderBy: { createdAt: "asc" } },
       },
     }),
-    prisma.salon.findFirst(),
+    prisma.salon.findUnique({ where: { id: salonId } }),
     prisma.invoice.count(),
   ]);
 

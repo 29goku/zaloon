@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 // ── addTip ────────────────────────────────────────────────────────────────────
 
@@ -64,8 +65,10 @@ export async function getTipsForStaff(
     clientName: string;
   }>;
 }> {
+  const salonId = await getCurrentSalonId();
   const invoices = await prisma.invoice.findMany({
     where: {
+      salonId,
       tip: { gt: 0 },
       createdAt: { gte: from, lte: to },
       Appointment: { staffId },
@@ -105,9 +108,11 @@ export async function getTipSummary(
     tipsAsPercentOfRevenue: number;
   }>
 > {
+  const salonId = await getCurrentSalonId();
   // Get all invoices with tips in range that have an appointment
   const invoices = await prisma.invoice.findMany({
     where: {
+      salonId,
       tip: { gt: 0 },
       createdAt: { gte: from, lte: to },
       Appointment: { isNot: null },
@@ -120,6 +125,7 @@ export async function getTipSummary(
   // Get all invoices in range that have an appointment (for revenue per staff)
   const allInvoices = await prisma.invoice.findMany({
     where: {
+      salonId,
       createdAt: { gte: from, lte: to },
       status: "PAID",
       Appointment: { isNot: null },
@@ -186,8 +192,9 @@ export async function getRecentTips(limit = 20): Promise<
     invoiceTotal: number;
   }>
 > {
+  const salonId = await getCurrentSalonId();
   const invoices = await prisma.invoice.findMany({
-    where: { tip: { gt: 0 } },
+    where: { salonId, tip: { gt: 0 } },
     orderBy: { createdAt: "desc" },
     take: limit,
     include: {
@@ -217,13 +224,14 @@ export async function getRecentTips(limit = 20): Promise<
 // Returns header card data for the tips dashboard
 
 export async function getTipStats(from: Date, to: Date) {
+  const salonId = await getCurrentSalonId();
   const [tippedInvoices, totalInvoicesInRange] = await Promise.all([
     prisma.invoice.findMany({
-      where: { tip: { gt: 0 }, createdAt: { gte: from, lte: to } },
+      where: { salonId, tip: { gt: 0 }, createdAt: { gte: from, lte: to } },
       select: { tip: true },
     }),
     prisma.invoice.count({
-      where: { createdAt: { gte: from, lte: to }, status: "PAID" },
+      where: { salonId, createdAt: { gte: from, lte: to }, status: "PAID" },
     }),
   ]);
 

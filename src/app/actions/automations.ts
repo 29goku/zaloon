@@ -2,6 +2,7 @@
 
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 import { revalidatePath } from "next/cache";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -31,8 +32,11 @@ export type AutomationRule = {
 // ── Helper ────────────────────────────────────────────────────────────────────
 
 async function getDefaultSalonId(): Promise<string | null> {
-  const salon = await prisma.salon.findFirst({ select: { id: true } });
-  return salon?.id ?? null;
+  try {
+    return await getCurrentSalonId();
+  } catch {
+    return null;
+  }
 }
 
 // ── createRule ────────────────────────────────────────────────────────────────

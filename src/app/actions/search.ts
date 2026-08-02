@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 export type SearchClient = {
   id: string;
@@ -114,12 +115,16 @@ export async function searchClients(
   if (!query || query.trim().length === 0) return [];
 
   const q = query.trim();
-  const salon = await prisma.salon.findFirst();
-  if (!salon) return [];
+  let salonId: string;
+  try {
+    salonId = await getCurrentSalonId();
+  } catch {
+    return [];
+  }
 
   return prisma.client.findMany({
     where: {
-      salonId: salon.id,
+      salonId,
       OR: [{ name: { contains: q } }, { phone: { contains: q } }],
     },
     select: { id: true, name: true, phone: true },
@@ -147,14 +152,18 @@ export async function globalSearch(
 
   const q = query.trim();
 
-  const salon = await prisma.salon.findFirst();
-  if (!salon) return empty;
+  let salonId: string;
+  try {
+    salonId = await getCurrentSalonId();
+  } catch {
+    return empty;
+  }
 
   const [clients, staff, services, appointments, invoices, coupons, giftCards, inventory] =
     await Promise.all([
       prisma.client.findMany({
         where: {
-          salonId: salon.id,
+          salonId,
           OR: [
             { name: { contains: q } },
             { phone: { contains: q } },
@@ -168,7 +177,7 @@ export async function globalSearch(
 
       prisma.staff.findMany({
         where: {
-          salonId: salon.id,
+          salonId,
           name: { contains: q },
         },
         select: { id: true, name: true, phone: true },
@@ -178,7 +187,7 @@ export async function globalSearch(
 
       prisma.service.findMany({
         where: {
-          salonId: salon.id,
+          salonId,
           name: { contains: q },
         },
         select: {
@@ -194,7 +203,7 @@ export async function globalSearch(
 
       prisma.appointment.findMany({
         where: {
-          salonId: salon.id,
+          salonId,
           Client: {
             name: { contains: q },
           },
@@ -215,7 +224,7 @@ export async function globalSearch(
       // use id prefix as display number.
       prisma.invoice.findMany({
         where: {
-          salonId: salon.id,
+          salonId,
           OR: [
             { Client: { name: { contains: q } } },
             { id: { contains: q } },
@@ -235,7 +244,7 @@ export async function globalSearch(
       // Coupons: match by code
       prisma.coupon.findMany({
         where: {
-          salonId: salon.id,
+          salonId,
           code: { contains: q },
         },
         select: { id: true, code: true, type: true, value: true, active: true },
@@ -246,7 +255,7 @@ export async function globalSearch(
       // Gift cards: match by code or purchasedBy
       prisma.giftCard.findMany({
         where: {
-          salonId: salon.id,
+          salonId,
           OR: [
             { code: { contains: q } },
             { purchasedBy: { contains: q } },
@@ -266,7 +275,7 @@ export async function globalSearch(
       // Inventory: match by name
       prisma.inventoryItem.findMany({
         where: {
-          salonId: salon.id,
+          salonId,
           name: { contains: q },
         },
         select: { id: true, name: true, quantity: true, category: true },
@@ -468,8 +477,10 @@ export async function getSearchSuggestions(): Promise<{
   todayAppointments: { id: string; clientName: string; time: string }[];
   lowStockItems: { id: string; name: string; quantity: number }[];
 }> {
-  const salon = await prisma.salon.findFirst();
-  if (!salon) {
+  let salonId: string;
+  try {
+    salonId = await getCurrentSalonId();
+  } catch {
     return { recentClients: [], todayAppointments: [], lowStockItems: [] };
   }
 
@@ -477,14 +488,14 @@ export async function getSearchSuggestions(): Promise<{
 
   const [recentClients, todayAppts, lowStockItems] = await Promise.all([
     prisma.client.findMany({
-      where: { salonId: salon.id },
+      where: { salonId },
       select: { id: true, name: true },
       orderBy: { createdAt: "desc" },
       take: 5,
     }),
 
     prisma.appointment.findMany({
-      where: { salonId: salon.id, date: today },
+      where: { salonId, date: today },
       select: {
         id: true,
         startTime: true,
@@ -498,7 +509,7 @@ export async function getSearchSuggestions(): Promise<{
     // We fetch all items and filter in JS to avoid cross-column comparisons
     prisma.inventoryItem
       .findMany({
-        where: { salonId: salon.id },
+        where: { salonId },
         select: { id: true, name: true, quantity: true, minQuantity: true },
         orderBy: { quantity: "asc" },
         take: 50,

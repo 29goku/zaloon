@@ -3,6 +3,7 @@
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -301,8 +302,11 @@ export async function updateTimeOffAllowances(
   allowances: Record<string, number>
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
+    const salon = await prisma.salon.findUniqueOrThrow({
+      where: { id: salonId },
+      select: { businessHours: true },
+    });
 
     let parsed: Record<string, unknown> = {};
     if (salon.businessHours) {
@@ -328,7 +332,7 @@ export async function updateTimeOffAllowances(
     parsed.__timeOffAllowances = updated;
 
     await prisma.salon.update({
-      where: { id: salon.id },
+      where: { id: salonId },
       data: { businessHours: JSON.stringify(parsed), updatedAt: new Date() },
     });
 
@@ -346,7 +350,9 @@ export async function getTimeOffAllowances(): Promise<
   Record<string, { allowedDays: number; usedDays: number }>
 > {
   try {
-    const salon = await prisma.salon.findFirst({
+    const salonId = await getCurrentSalonId();
+    const salon = await prisma.salon.findUnique({
+      where: { id: salonId },
       select: { businessHours: true },
     });
     if (!salon?.businessHours) return {};
@@ -368,8 +374,11 @@ export async function getTimeOffAllowances(): Promise<
 
 export async function syncUsedDays(): Promise<{ success: boolean; error?: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
+    const salon = await prisma.salon.findUniqueOrThrow({
+      where: { id: salonId },
+      select: { businessHours: true },
+    });
 
     const year = new Date().getFullYear();
     const yearStart = `${year}-01-01`;
@@ -413,7 +422,7 @@ export async function syncUsedDays(): Promise<{ success: boolean; error?: string
 
     parsed.__timeOffAllowances = existing;
     await prisma.salon.update({
-      where: { id: salon.id },
+      where: { id: salonId },
       data: { businessHours: JSON.stringify(parsed), updatedAt: new Date() },
     });
 

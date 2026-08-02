@@ -2,6 +2,8 @@
 
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
+import { readSalonBlob, writeSalonBlobKey } from "@/lib/repositories/salon";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -32,40 +34,15 @@ export interface PricingRule {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function getSalon() {
-  return prisma.salon.findFirst();
-}
-
 async function readRules(): Promise<PricingRule[]> {
-  const salon = await getSalon();
-  if (!salon?.businessHours) return [];
-  try {
-    const parsed = JSON.parse(salon.businessHours);
-    return (parsed?.__pricingRules as PricingRule[]) ?? [];
-  } catch {
-    return [];
-  }
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
+  return (blob.__pricingRules as PricingRule[]) ?? [];
 }
 
 async function writeRules(rules: PricingRule[]): Promise<void> {
-  const salon = await getSalon();
-  if (!salon) return;
-  let existing: Record<string, unknown> = {};
-  try {
-    if (salon.businessHours) {
-      existing = JSON.parse(salon.businessHours);
-    }
-  } catch {
-    // ignore parse errors
-  }
-  const updated = { ...existing, __pricingRules: rules };
-  await prisma.salon.update({
-    where: { id: salon.id },
-    data: {
-      businessHours: JSON.stringify(updated),
-      updatedAt: new Date(),
-    },
-  });
+  const salonId = await getCurrentSalonId();
+  await writeSalonBlobKey(salonId, "__pricingRules", rules);
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────────

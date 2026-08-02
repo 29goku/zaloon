@@ -2,6 +2,7 @@
 
 import { randomUUID, randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,8 +60,7 @@ export async function issueGiftCard(data: {
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     // Generate a unique code — retry a few times in case of collision
     let code = "";
@@ -77,7 +77,7 @@ export async function issueGiftCard(data: {
     const card = await prisma.giftCard.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         code,
         initialValue: data.initialValue,
         balance: data.initialValue,

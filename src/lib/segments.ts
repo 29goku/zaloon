@@ -65,15 +65,13 @@ export const PREDEFINED_SEGMENTS: Segment[] = [
 // ── getSegmentClientIds ────────────────────────────────────────────────────────
 
 /**
- * Returns client IDs (for the first salon found) that match the given segment.
+ * Returns client IDs for the given salonId that match the given segment.
  */
 export async function getSegmentClientIds(
   prisma: PrismaClient,
+  salonId: string,
   segmentId: string
 ): Promise<string[]> {
-  const salon = await prisma.salon.findFirst();
-  if (!salon) return [];
-
   const now = new Date();
 
   switch (segmentId) {
@@ -81,7 +79,7 @@ export async function getSegmentClientIds(
       const cutoff = new Date(now);
       cutoff.setDate(cutoff.getDate() - 30);
       const clients = await prisma.client.findMany({
-        where: { salonId: salon.id, createdAt: { gte: cutoff } },
+        where: { salonId, createdAt: { gte: cutoff } },
         select: { id: true },
       });
       return clients.map((c) => c.id);
@@ -91,7 +89,7 @@ export async function getSegmentClientIds(
       // Clients whose Appointment count >= 10
       const clients = await prisma.client.findMany({
         where: {
-          salonId: salon.id,
+          salonId,
           Appointment: { some: {} },
         },
         select: {
@@ -112,7 +110,7 @@ export async function getSegmentClientIds(
       // Had an appointment in [90, 45] days ago window but none more recent
       const clients = await prisma.client.findMany({
         where: {
-          salonId: salon.id,
+          salonId,
           Appointment: {
             some: { date: { gte: fromStr, lte: toStr } },
             none: { date: { gt: toStr } },
@@ -130,7 +128,7 @@ export async function getSegmentClientIds(
       // Had at least one appointment ever, but none in the last 90 days
       const clients = await prisma.client.findMany({
         where: {
-          salonId: salon.id,
+          salonId,
           Appointment: {
             some: {},
             none: { date: { gte: cutoffStr } },
@@ -143,7 +141,7 @@ export async function getSegmentClientIds(
 
     case "vip": {
       const clients = await prisma.client.findMany({
-        where: { salonId: salon.id, isVip: true },
+        where: { salonId, isVip: true },
         select: { id: true },
       });
       return clients.map((c) => c.id);
@@ -154,7 +152,7 @@ export async function getSegmentClientIds(
       const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
       const clients = await prisma.client.findMany({
         where: {
-          salonId: salon.id,
+          salonId,
           birthday: { gte: monthStart, lte: monthEnd },
         },
         select: { id: true },
@@ -165,7 +163,7 @@ export async function getSegmentClientIds(
     case "high_spend": {
       // Sum Appointment.totalAmount per client > 500
       const clients = await prisma.client.findMany({
-        where: { salonId: salon.id },
+        where: { salonId },
         select: {
           id: true,
           Appointment: { select: { totalAmount: true } },
@@ -190,8 +188,9 @@ export async function getSegmentClientIds(
  */
 export async function getSegmentCount(
   prisma: PrismaClient,
+  salonId: string,
   segmentId: string
 ): Promise<number> {
-  const ids = await getSegmentClientIds(prisma, segmentId);
+  const ids = await getSegmentClientIds(prisma, salonId, segmentId);
   return ids.length;
 }

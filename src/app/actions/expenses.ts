@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 import {
   EXPENSE_CATEGORIES,
   PAYMENT_METHODS,
@@ -60,13 +61,12 @@ export async function createExpense(data: {
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const expense = await prisma.expense.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         category: parsed.data.category,
         subcategory: parsed.data.subcategory ?? null,
         description: parsed.data.description,
@@ -169,12 +169,11 @@ export async function getExpenses(filter?: {
   to?: string;
 }) {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return [];
+    const salonId = await getCurrentSalonId();
 
     const expenses = await prisma.expense.findMany({
       where: {
-        salonId: salon.id,
+        salonId,
         ...(filter?.category && filter.category !== "ALL" && {
           category: filter.category,
         }),
@@ -198,12 +197,11 @@ export async function getExpenses(filter?: {
 
 export async function getRecurringExpenses() {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return [];
+    const salonId = await getCurrentSalonId();
 
     const expenses = await prisma.expense.findMany({
       where: {
-        salonId: salon.id,
+        salonId,
         isRecurring: true,
       },
       orderBy: { recurringDay: "asc" },
@@ -254,8 +252,7 @@ export async function bulkCreateExpenses(
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, created: 0, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     // Use a transaction to create all at once
     const validated = expenses.map((e) => rowSchema.parse(e));
@@ -265,7 +262,7 @@ export async function bulkCreateExpenses(
         prisma.expense.create({
           data: {
             id: randomUUID(),
-            salonId: salon.id,
+            salonId,
             category: e.category,
             description: e.description,
             amount: e.amount,

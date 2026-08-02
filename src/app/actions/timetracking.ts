@@ -3,6 +3,8 @@
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
+import { getCurrentSalonId } from "@/lib/repositories/base";
+import { readSalonBlob, writeSalonBlobKey } from "@/lib/repositories/salon";
 
 export interface TimeEntry {
   id: string;
@@ -16,47 +18,16 @@ export interface TimeEntry {
 
 // ── Helper: read/write __timeEntries in Salon.businessHours ───────────────────
 
-async function getSalonId(): Promise<string | null> {
-  const salon = await prisma.salon.findFirst({ select: { id: true } });
-  return salon?.id ?? null;
-}
-
 async function readEntries(salonId: string): Promise<TimeEntry[]> {
-  const salon = await prisma.salon.findUnique({
-    where: { id: salonId },
-    select: { businessHours: true },
-  });
-  if (!salon?.businessHours) return [];
-  try {
-    const parsed = JSON.parse(salon.businessHours);
-    return (parsed.__timeEntries as TimeEntry[]) ?? [];
-  } catch {
-    return [];
-  }
+  const blob = await readSalonBlob(salonId);
+  return (blob.__timeEntries as TimeEntry[]) ?? [];
 }
 
 async function writeEntries(
   salonId: string,
   entries: TimeEntry[]
 ): Promise<void> {
-  // Preserve existing businessHours data (non-time-entry fields)
-  const salon = await prisma.salon.findUnique({
-    where: { id: salonId },
-    select: { businessHours: true },
-  });
-  let existing: Record<string, unknown> = {};
-  if (salon?.businessHours) {
-    try {
-      existing = JSON.parse(salon.businessHours);
-    } catch {
-      existing = {};
-    }
-  }
-  const updated = { ...existing, __timeEntries: entries };
-  await prisma.salon.update({
-    where: { id: salonId },
-    data: { businessHours: JSON.stringify(updated) },
-  });
+  await writeSalonBlobKey(salonId, "__timeEntries", entries);
 }
 
 // ── Clock In ───────────────────────────────────────────────────────────────────
@@ -65,9 +36,7 @@ export async function clockIn(
   staffId: string
 ): Promise<{ success: boolean; entry?: TimeEntry; error?: string }> {
   try {
-    const salonId = await getSalonId();
-    if (!salonId) return { success: false, error: "No salon found" };
-
+    const salonId = await getCurrentSalonId();
     const entries = await readEntries(salonId);
 
     // Check if already clocked in
@@ -105,9 +74,7 @@ export async function clockOut(
   staffId: string
 ): Promise<{ success: boolean; entry?: TimeEntry; error?: string }> {
   try {
-    const salonId = await getSalonId();
-    if (!salonId) return { success: false, error: "No salon found" };
-
+    const salonId = await getCurrentSalonId();
     const entries = await readEntries(salonId);
     const idx = entries.findIndex(
       (e) => e.staffId === staffId && e.clockOut === null
@@ -147,9 +114,7 @@ export async function getClockStatus(staffId: string): Promise<{
   minutesWorked?: number;
 }> {
   try {
-    const salonId = await getSalonId();
-    if (!salonId) return { isClockedIn: false };
-
+    const salonId = await getCurrentSalonId();
     const entries = await readEntries(salonId);
     const open = entries.find(
       (e) => e.staffId === staffId && e.clockOut === null
@@ -174,9 +139,7 @@ export async function getTimeEntries(
   to: Date
 ): Promise<TimeEntry[]> {
   try {
-    const salonId = await getSalonId();
-    if (!salonId) return [];
-
+    const salonId = await getCurrentSalonId();
     const entries = await readEntries(salonId);
     const fromStr = from.toISOString().split("T")[0];
     const toStr = to.toISOString().split("T")[0];
@@ -206,9 +169,7 @@ export async function getTimeSummary(
   }>
 > {
   try {
-    const salonId = await getSalonId();
-    if (!salonId) return [];
-
+    const salonId = await getCurrentSalonId();
     const [entries, allStaff] = await Promise.all([
       readEntries(salonId),
       prisma.staff.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
@@ -257,9 +218,7 @@ export async function manualEntry(
   notes?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const salonId = await getSalonId();
-    if (!salonId) return { success: false, error: "No salon found" };
-
+    const salonId = await getCurrentSalonId();
     const entries = await readEntries(salonId);
 
     const clockIn = new Date(clockInStr);
@@ -304,9 +263,7 @@ export async function editEntry(
   data: Partial<TimeEntry>
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const salonId = await getSalonId();
-    if (!salonId) return { success: false, error: "No salon found" };
-
+    const salonId = await getCurrentSalonId();
     const entries = await readEntries(salonId);
     const idx = entries.findIndex((e) => e.id === entryId);
     if (idx === -1) return { success: false, error: "Entry not found" };
@@ -341,9 +298,7 @@ export async function deleteEntry(
   entryId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const salonId = await getSalonId();
-    if (!salonId) return { success: false, error: "No salon found" };
-
+    const salonId = await getCurrentSalonId();
     const entries = await readEntries(salonId);
     const filtered = entries.filter((e) => e.id !== entryId);
     if (filtered.length === entries.length) {

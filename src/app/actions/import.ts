@@ -3,6 +3,7 @@
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 export async function importServices(
   rows: {
@@ -12,10 +13,7 @@ export async function importServices(
     price: string;
   }[]
 ): Promise<{ success: boolean; imported: number; errors: string[] }> {
-  const salon = await prisma.salon.findFirst();
-  if (!salon) {
-    return { success: false, imported: 0, errors: ["No salon found"] };
-  }
+  const salonId = await getCurrentSalonId();
 
   let imported = 0;
   const errors: string[] = [];
@@ -52,7 +50,7 @@ export async function importServices(
       // Find or create ServiceCategory
       let category = await prisma.serviceCategory.findFirst({
         where: {
-          salonId: salon.id,
+          salonId: salonId,
           name: { equals: categoryName },
         },
       });
@@ -61,7 +59,7 @@ export async function importServices(
         category = await prisma.serviceCategory.create({
           data: {
             id: randomUUID(),
-            salonId: salon.id,
+            salonId: salonId,
             name: categoryName,
           },
         });
@@ -70,7 +68,7 @@ export async function importServices(
       // Check for duplicate service name in same category
       const existing = await prisma.service.findFirst({
         where: {
-          salonId: salon.id,
+          salonId: salonId,
           categoryId: category.id,
           name: { equals: name },
         },
@@ -84,7 +82,7 @@ export async function importServices(
       await prisma.service.create({
         data: {
           id: randomUUID(),
-          salonId: salon.id,
+          salonId: salonId,
           categoryId: category.id,
           name,
           durationMins,

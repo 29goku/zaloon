@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 import { format, startOfWeek, endOfWeek, addHours } from "date-fns";
 
 export type NotificationAppointment = {
@@ -60,8 +61,10 @@ export type NotificationsResult = {
 };
 
 export async function getNotifications(): Promise<NotificationsResult> {
-  const salon = await prisma.salon.findFirst({ select: { id: true } });
-  if (!salon) {
+  let salonId: string;
+  try {
+    salonId = await getCurrentSalonId();
+  } catch {
     return {
       upcomingToday: [],
       birthdaysThisWeek: [],
@@ -81,7 +84,7 @@ export async function getNotifications(): Promise<NotificationsResult> {
   // ── Appointments starting within the next 2 hours today ─────────────────────
   const upcomingToday = await prisma.appointment.findMany({
     where: {
-      salonId: salon.id,
+      salonId,
       date: todayStr,
       startTime: { gte: currentTimeStr, lte: twoHoursLaterStr },
       status: "SCHEDULED",
@@ -97,7 +100,7 @@ export async function getNotifications(): Promise<NotificationsResult> {
   // ── Overdue: SCHEDULED appointments whose date/time is in the past ───────────
   const overdueAppointments = await prisma.appointment.findMany({
     where: {
-      salonId: salon.id,
+      salonId,
       status: "SCHEDULED",
       OR: [
         { date: { lt: todayStr } },
@@ -114,7 +117,7 @@ export async function getNotifications(): Promise<NotificationsResult> {
 
   // ── Pending reminders ────────────────────────────────────────────────────────
   const pendingReminders = await prisma.reminder.findMany({
-    where: { salonId: salon.id, status: "PENDING" },
+    where: { salonId, status: "PENDING" },
     include: {
       Appointment: {
         select: {
@@ -132,7 +135,7 @@ export async function getNotifications(): Promise<NotificationsResult> {
   // ── Low stock inventory items ────────────────────────────────────────────────
   const lowStockItems = await prisma.inventoryItem.findMany({
     where: {
-      salonId: salon.id,
+      salonId,
       // quantity is at or below minQuantity threshold (and minQuantity > 0)
       minQuantity: { gt: 0 },
     },
@@ -157,7 +160,7 @@ export async function getNotifications(): Promise<NotificationsResult> {
   const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
 
   const allClients = await prisma.client.findMany({
-    where: { salonId: salon.id, birthday: { not: null } },
+    where: { salonId, birthday: { not: null } },
     select: { id: true, name: true, birthday: true, phone: true },
   });
 
@@ -178,7 +181,7 @@ export async function getNotifications(): Promise<NotificationsResult> {
 
   // ── Badge count: scheduled today + pending reminders + birthdays today ───────
   const scheduledTodayCount = await prisma.appointment.count({
-    where: { salonId: salon.id, date: todayStr, status: "SCHEDULED" },
+    where: { salonId, date: todayStr, status: "SCHEDULED" },
   });
   const pendingReminderCount = pendingReminders.length;
   const birthdayTodayCount = birthdaysToday.length;

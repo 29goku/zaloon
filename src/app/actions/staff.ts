@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 // ─── createStaff ───────────────────────────────────────────────────────────────
 
@@ -21,13 +22,12 @@ export async function createStaff(
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const staff = await prisma.staff.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         name: parsed.data.name,
         phone: parsed.data.phone ?? null,
         commissionPct: parsed.data.commissionPct,
@@ -270,8 +270,7 @@ export async function createStaffMember(data: {
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const { name, phone, role, commissionPct, avatarColor, photo, schedule, services } = parsed.data;
 
@@ -287,7 +286,7 @@ export async function createStaffMember(data: {
     await prisma.staff.create({
       data: {
         id: staffId,
-        salonId: salon.id,
+        salonId,
         name,
         phone: phone ?? null,
         commissionPct,

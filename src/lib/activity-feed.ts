@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 import type { ActivityItem } from "@/lib/activity-feed-utils";
 
 const TYPE_META: Record<
@@ -22,6 +23,7 @@ const TYPE_META: Record<
 export async function getRecentActivity(
   limit = 50
 ): Promise<ActivityItem[]> {
+  const salonId = await getCurrentSalonId();
   const FETCH = Math.ceil(limit / 5) + 5;
 
   const [appointments, clients, invoices, staff, reviews, campaigns] =
@@ -29,6 +31,7 @@ export async function getRecentActivity(
       prisma.appointment.findMany({
         take: FETCH * 2,
         orderBy: { createdAt: "desc" },
+        where: { salonId },
         select: {
           id: true,
           status: true,
@@ -44,12 +47,13 @@ export async function getRecentActivity(
       prisma.client.findMany({
         take: FETCH,
         orderBy: { createdAt: "desc" },
+        where: { salonId },
         select: { id: true, name: true, createdAt: true },
       }),
       prisma.invoice.findMany({
         take: FETCH,
         orderBy: { createdAt: "desc" },
-        where: { status: "PAID" },
+        where: { salonId, status: "PAID" },
         select: {
           id: true,
           total: true,
@@ -60,11 +64,13 @@ export async function getRecentActivity(
       prisma.staff.findMany({
         take: FETCH,
         orderBy: { createdAt: "desc" },
+        where: { salonId },
         select: { id: true, name: true, createdAt: true },
       }),
       prisma.review.findMany({
         take: FETCH,
         orderBy: { createdAt: "desc" },
+        where: { salonId },
         select: {
           id: true,
           rating: true,
@@ -76,7 +82,7 @@ export async function getRecentActivity(
       prisma.campaign.findMany({
         take: FETCH,
         orderBy: { createdAt: "desc" },
-        where: { status: { in: ["ACTIVE", "COMPLETED"] } },
+        where: { salonId, status: { in: ["ACTIVE", "COMPLETED"] } },
         select: {
           id: true,
           name: true,
@@ -203,6 +209,7 @@ export async function getRecentChanges(): Promise<{
   revenueToday: number;
   pendingReminders: number;
 }> {
+  const salonId = await getCurrentSalonId();
   const now = new Date();
   const todayStart = new Date(now);
   todayStart.setHours(0, 0, 0, 0);
@@ -219,16 +226,16 @@ export async function getRecentChanges(): Promise<{
     revAgg,
     pendingReminders,
   ] = await Promise.all([
-    prisma.client.count({ where: { createdAt: { gte: yesterday } } }),
-    prisma.appointment.count({ where: { createdAt: { gte: yesterday } } }),
+    prisma.client.count({ where: { salonId, createdAt: { gte: yesterday } } }),
+    prisma.appointment.count({ where: { salonId, createdAt: { gte: yesterday } } }),
     prisma.appointment.count({
-      where: { date: today, status: "COMPLETED" },
+      where: { salonId, date: today, status: "COMPLETED" },
     }),
     prisma.invoice.aggregate({
       _sum: { total: true },
-      where: { createdAt: { gte: todayStart } },
+      where: { salonId, createdAt: { gte: todayStart } },
     }),
-    prisma.reminder.count({ where: { status: "PENDING" } }),
+    prisma.reminder.count({ where: { salonId, status: "PENDING" } }),
   ]);
 
   return {

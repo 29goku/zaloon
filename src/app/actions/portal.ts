@@ -2,6 +2,7 @@
 
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 import { revalidatePath } from "next/cache";
 
 /**
@@ -17,11 +18,10 @@ export async function updateClientProfile(
   if (!data.name?.trim()) return { success: false, error: "Name is required" };
 
   try {
-    const salon = await prisma.salon.findFirst({ select: { id: true } });
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const client = await prisma.client.findFirst({
-      where: { salonId: salon.id, phone: trimmedPhone },
+      where: { salonId, phone: trimmedPhone },
       select: { id: true },
     });
 

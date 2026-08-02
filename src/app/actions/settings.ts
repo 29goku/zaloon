@@ -4,6 +4,8 @@ import { z } from "zod";
 import { randomUUID } from "crypto";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
+import { readSalonBlob, writeSalonBlobKey } from "@/lib/repositories/salon";
 
 const salonSettingsSchema = z.object({
   name: z.string().min(1, "Salon name is required").optional(),
@@ -31,10 +33,7 @@ export async function updateSalonSettings(
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) {
-      return { success: false, error: "No salon found" };
-    }
+    const salonId = await getCurrentSalonId();
 
     const {
       name,
@@ -52,7 +51,7 @@ export async function updateSalonSettings(
     } = parsed.data;
 
     await prisma.salon.update({
-      where: { id: salon.id },
+      where: { id: salonId },
       data: {
         updatedAt: new Date(),
         ...(name !== undefined && { name }),
@@ -110,15 +109,10 @@ const DEFAULT_LOYALTY_SETTINGS: LoyaltySettings = {
 };
 
 export async function getLoyaltySettings(): Promise<LoyaltySettings> {
-  const salon = await prisma.salon.findFirst({ select: { businessHours: true } });
-  if (!salon?.businessHours) return DEFAULT_LOYALTY_SETTINGS;
-  try {
-    const parsed = JSON.parse(salon.businessHours);
-    if (parsed && parsed.__loyalty) {
-      return { ...DEFAULT_LOYALTY_SETTINGS, ...parsed.__loyalty };
-    }
-  } catch {
-    // ignore
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
+  if (blob.__loyalty) {
+    return { ...DEFAULT_LOYALTY_SETTINGS, ...(blob.__loyalty as Partial<LoyaltySettings>) };
   }
   return DEFAULT_LOYALTY_SETTINGS;
 }
@@ -149,35 +143,8 @@ export async function saveLoyaltySettings(
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
-
-    // Parse existing businessHours to preserve the hours array
-    let existing: Record<string, unknown> = {};
-    if (salon.businessHours) {
-      try {
-        const prev = JSON.parse(salon.businessHours);
-        if (prev && typeof prev === "object" && !Array.isArray(prev)) {
-          existing = prev;
-        } else if (Array.isArray(prev)) {
-          // old format: plain array — store as __hours
-          existing = { __hours: prev };
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    const merged = { ...existing, __loyalty: parsed.data };
-
-    await prisma.salon.update({
-      where: { id: salon.id },
-      data: {
-        updatedAt: new Date(),
-        businessHours: JSON.stringify(merged),
-      },
-    });
-
+    const salonId = await getCurrentSalonId();
+    await writeSalonBlobKey(salonId, "__loyalty", parsed.data);
     return { success: true };
   } catch (err) {
     console.error("[saveLoyaltySettings]", err);
@@ -185,18 +152,13 @@ export async function saveLoyaltySettings(
   }
 }
 
-// ─── Staff Goals ──────────────────────────────────────────────────────────
+// ─── Staff Goals ──────────────────────────────────────────────────────────────
 
 export async function getStaffGoals(): Promise<Record<string, number>> {
-  const salon = await prisma.salon.findFirst({ select: { businessHours: true } });
-  if (!salon?.businessHours) return {};
-  try {
-    const parsed = JSON.parse(salon.businessHours);
-    if (parsed && parsed.__staffGoals && typeof parsed.__staffGoals === "object") {
-      return parsed.__staffGoals as Record<string, number>;
-    }
-  } catch {
-    // ignore
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
+  if (blob.__staffGoals && typeof blob.__staffGoals === "object") {
+    return blob.__staffGoals as Record<string, number>;
   }
   return {};
 }
@@ -205,33 +167,8 @@ export async function saveStaffGoals(
   goals: Record<string, number>
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
-
-    let existing: Record<string, unknown> = {};
-    if (salon.businessHours) {
-      try {
-        const prev = JSON.parse(salon.businessHours);
-        if (prev && typeof prev === "object" && !Array.isArray(prev)) {
-          existing = prev;
-        } else if (Array.isArray(prev)) {
-          existing = { __hours: prev };
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    const merged = { ...existing, __staffGoals: goals };
-
-    await prisma.salon.update({
-      where: { id: salon.id },
-      data: {
-        updatedAt: new Date(),
-        businessHours: JSON.stringify(merged),
-      },
-    });
-
+    const salonId = await getCurrentSalonId();
+    await writeSalonBlobKey(salonId, "__staffGoals", goals);
     return { success: true };
   } catch (err) {
     console.error("[saveStaffGoals]", err);
@@ -239,7 +176,7 @@ export async function saveStaffGoals(
   }
 }
 
-// ─── Booking Rules ────────────────────────────────────────────────────────
+// ─── Booking Rules ────────────────────────────────────────────────────────────
 
 export interface BookingRules {
   minAdvanceHours: number;
@@ -274,15 +211,10 @@ const DEFAULT_BOOKING_RULES: BookingRules = {
 };
 
 export async function getBookingRules(): Promise<BookingRules> {
-  const salon = await prisma.salon.findFirst({ select: { businessHours: true } });
-  if (!salon?.businessHours) return DEFAULT_BOOKING_RULES;
-  try {
-    const parsed = JSON.parse(salon.businessHours);
-    if (parsed && parsed.__bookingRules) {
-      return { ...DEFAULT_BOOKING_RULES, ...parsed.__bookingRules };
-    }
-  } catch {
-    // ignore
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
+  if (blob.__bookingRules) {
+    return { ...DEFAULT_BOOKING_RULES, ...(blob.__bookingRules as Partial<BookingRules>) };
   }
   return DEFAULT_BOOKING_RULES;
 }
@@ -291,31 +223,10 @@ export async function saveBookingRules(
   rules: Partial<BookingRules>
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
-
-    let existing: Record<string, unknown> = {};
-    if (salon.businessHours) {
-      try {
-        const prev = JSON.parse(salon.businessHours);
-        if (prev && typeof prev === "object" && !Array.isArray(prev)) {
-          existing = prev;
-        } else if (Array.isArray(prev)) {
-          existing = { __hours: prev };
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    const currentRules = (existing.__bookingRules as Partial<BookingRules>) ?? {};
-    const merged = { ...existing, __bookingRules: { ...DEFAULT_BOOKING_RULES, ...currentRules, ...rules } };
-
-    await prisma.salon.update({
-      where: { id: salon.id },
-      data: { updatedAt: new Date(), businessHours: JSON.stringify(merged) },
-    });
-
+    const salonId = await getCurrentSalonId();
+    const blob = await readSalonBlob(salonId);
+    const currentRules = (blob.__bookingRules as Partial<BookingRules>) ?? {};
+    await writeSalonBlobKey(salonId, "__bookingRules", { ...DEFAULT_BOOKING_RULES, ...currentRules, ...rules });
     return { success: true };
   } catch (err) {
     console.error("[saveBookingRules]", err);
@@ -323,7 +234,7 @@ export async function saveBookingRules(
   }
 }
 
-// ─── Staff Unavailability ─────────────────────────────────────────────────
+// ─── Staff Unavailability ─────────────────────────────────────────────────────
 
 export interface StaffUnavailability {
   staffId: string;
@@ -334,16 +245,11 @@ export interface StaffUnavailability {
 }
 
 export async function getStaffUnavailability(staffId?: string): Promise<StaffUnavailability[]> {
-  const salon = await prisma.salon.findFirst({ select: { businessHours: true } });
-  if (!salon?.businessHours) return [];
-  try {
-    const parsed = JSON.parse(salon.businessHours);
-    if (parsed && Array.isArray(parsed.__staffUnavailability)) {
-      const all = parsed.__staffUnavailability as StaffUnavailability[];
-      return staffId ? all.filter((u) => u.staffId === staffId) : all;
-    }
-  } catch {
-    // ignore
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
+  if (Array.isArray(blob.__staffUnavailability)) {
+    const all = blob.__staffUnavailability as StaffUnavailability[];
+    return staffId ? all.filter((u) => u.staffId === staffId) : all;
   }
   return [];
 }
@@ -352,34 +258,12 @@ export async function addUnavailability(
   data: StaffUnavailability
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
-
-    let existing: Record<string, unknown> = {};
-    if (salon.businessHours) {
-      try {
-        const prev = JSON.parse(salon.businessHours);
-        if (prev && typeof prev === "object" && !Array.isArray(prev)) {
-          existing = prev;
-        } else if (Array.isArray(prev)) {
-          existing = { __hours: prev };
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    const current = Array.isArray(existing.__staffUnavailability)
-      ? (existing.__staffUnavailability as StaffUnavailability[])
+    const salonId = await getCurrentSalonId();
+    const blob = await readSalonBlob(salonId);
+    const current = Array.isArray(blob.__staffUnavailability)
+      ? (blob.__staffUnavailability as StaffUnavailability[])
       : [];
-
-    const merged = { ...existing, __staffUnavailability: [...current, data] };
-
-    await prisma.salon.update({
-      where: { id: salon.id },
-      data: { updatedAt: new Date(), businessHours: JSON.stringify(merged) },
-    });
-
+    await writeSalonBlobKey(salonId, "__staffUnavailability", [...current, data]);
     return { success: true };
   } catch (err) {
     console.error("[addUnavailability]", err);
@@ -393,25 +277,10 @@ export async function removeUnavailability(
   startTime?: string
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
-
-    let existing: Record<string, unknown> = {};
-    if (salon.businessHours) {
-      try {
-        const prev = JSON.parse(salon.businessHours);
-        if (prev && typeof prev === "object" && !Array.isArray(prev)) {
-          existing = prev;
-        } else if (Array.isArray(prev)) {
-          existing = { __hours: prev };
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    const current = Array.isArray(existing.__staffUnavailability)
-      ? (existing.__staffUnavailability as StaffUnavailability[])
+    const salonId = await getCurrentSalonId();
+    const blob = await readSalonBlob(salonId);
+    const current = Array.isArray(blob.__staffUnavailability)
+      ? (blob.__staffUnavailability as StaffUnavailability[])
       : [];
 
     const filtered = current.filter((u) => {
@@ -421,13 +290,7 @@ export async function removeUnavailability(
       return u.startTime !== undefined; // keep timed entries, remove all-day
     });
 
-    const merged = { ...existing, __staffUnavailability: filtered };
-
-    await prisma.salon.update({
-      where: { id: salon.id },
-      data: { updatedAt: new Date(), businessHours: JSON.stringify(merged) },
-    });
-
+    await writeSalonBlobKey(salonId, "__staffUnavailability", filtered);
     return { success: true };
   } catch (err) {
     console.error("[removeUnavailability]", err);
@@ -435,7 +298,7 @@ export async function removeUnavailability(
   }
 }
 
-// ─── Digest Settings ─────────────────────────────────────────────────────
+// ─── Digest Settings ─────────────────────────────────────────────────────────
 
 export interface DigestSettings {
   enabled: boolean;
@@ -466,15 +329,10 @@ const DEFAULT_DIGEST_SETTINGS: DigestSettings = {
 };
 
 export async function getDigestSettings(): Promise<DigestSettings> {
-  const salon = await prisma.salon.findFirst({ select: { businessHours: true } });
-  if (!salon?.businessHours) return DEFAULT_DIGEST_SETTINGS;
-  try {
-    const parsed = JSON.parse(salon.businessHours);
-    if (parsed && parsed.__digestSettings) {
-      return { ...DEFAULT_DIGEST_SETTINGS, ...parsed.__digestSettings };
-    }
-  } catch {
-    // ignore
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
+  if (blob.__digestSettings) {
+    return { ...DEFAULT_DIGEST_SETTINGS, ...(blob.__digestSettings as Partial<DigestSettings>) };
   }
   return DEFAULT_DIGEST_SETTINGS;
 }
@@ -483,31 +341,10 @@ export async function saveDigestSettings(
   data: Partial<DigestSettings>
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
-
-    let existing: Record<string, unknown> = {};
-    if (salon.businessHours) {
-      try {
-        const prev = JSON.parse(salon.businessHours);
-        if (prev && typeof prev === "object" && !Array.isArray(prev)) {
-          existing = prev;
-        } else if (Array.isArray(prev)) {
-          existing = { __hours: prev };
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    const current = (existing.__digestSettings as Partial<DigestSettings>) ?? {};
-    const merged = { ...existing, __digestSettings: { ...DEFAULT_DIGEST_SETTINGS, ...current, ...data } };
-
-    await prisma.salon.update({
-      where: { id: salon.id },
-      data: { updatedAt: new Date(), businessHours: JSON.stringify(merged) },
-    });
-
+    const salonId = await getCurrentSalonId();
+    const blob = await readSalonBlob(salonId);
+    const current = (blob.__digestSettings as Partial<DigestSettings>) ?? {};
+    await writeSalonBlobKey(salonId, "__digestSettings", { ...DEFAULT_DIGEST_SETTINGS, ...current, ...data });
     return { success: true };
   } catch (err) {
     console.error("[saveDigestSettings]", err);
@@ -515,7 +352,7 @@ export async function saveDigestSettings(
   }
 }
 
-// ─── Tax Settings ─────────────────────────────────────────────────────────
+// ─── Tax Settings ─────────────────────────────────────────────────────────────
 
 export interface TaxSettings {
   enabled: boolean;
@@ -538,15 +375,10 @@ const DEFAULT_TAX_SETTINGS: TaxSettings = {
 };
 
 export async function getTaxSettings(): Promise<TaxSettings> {
-  const salon = await prisma.salon.findFirst({ select: { businessHours: true } });
-  if (!salon?.businessHours) return DEFAULT_TAX_SETTINGS;
-  try {
-    const parsed = JSON.parse(salon.businessHours);
-    if (parsed && parsed.__taxSettings) {
-      return { ...DEFAULT_TAX_SETTINGS, ...parsed.__taxSettings };
-    }
-  } catch {
-    // ignore
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
+  if (blob.__taxSettings) {
+    return { ...DEFAULT_TAX_SETTINGS, ...(blob.__taxSettings as Partial<TaxSettings>) };
   }
   return DEFAULT_TAX_SETTINGS;
 }
@@ -555,34 +387,10 @@ export async function saveTaxSettings(
   data: Partial<TaxSettings>
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
-
-    let existing: Record<string, unknown> = {};
-    if (salon.businessHours) {
-      try {
-        const prev = JSON.parse(salon.businessHours);
-        if (prev && typeof prev === "object" && !Array.isArray(prev)) {
-          existing = prev;
-        } else if (Array.isArray(prev)) {
-          existing = { __hours: prev };
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    const current = (existing.__taxSettings as Partial<TaxSettings>) ?? {};
-    const merged = {
-      ...existing,
-      __taxSettings: { ...DEFAULT_TAX_SETTINGS, ...current, ...data },
-    };
-
-    await prisma.salon.update({
-      where: { id: salon.id },
-      data: { updatedAt: new Date(), businessHours: JSON.stringify(merged) },
-    });
-
+    const salonId = await getCurrentSalonId();
+    const blob = await readSalonBlob(salonId);
+    const current = (blob.__taxSettings as Partial<TaxSettings>) ?? {};
+    await writeSalonBlobKey(salonId, "__taxSettings", { ...DEFAULT_TAX_SETTINGS, ...current, ...data });
     return { success: true };
   } catch (err) {
     console.error("[saveTaxSettings]", err);
@@ -590,7 +398,7 @@ export async function saveTaxSettings(
   }
 }
 
-// ─── Reminder Settings ───────────────────────────────────────────────────────
+// ─── Reminder Settings ───────────────────────────────────────────────────────────
 
 export interface ReminderSettings {
   smsEnabled: boolean;
@@ -624,15 +432,10 @@ const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
 };
 
 export async function getReminderSettings(): Promise<ReminderSettings> {
-  const salon = await prisma.salon.findFirst({ select: { businessHours: true } });
-  if (!salon?.businessHours) return DEFAULT_REMINDER_SETTINGS;
-  try {
-    const parsed = JSON.parse(salon.businessHours);
-    if (parsed && parsed.__reminderSettings) {
-      return { ...DEFAULT_REMINDER_SETTINGS, ...parsed.__reminderSettings };
-    }
-  } catch {
-    // ignore
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
+  if (blob.__reminderSettings) {
+    return { ...DEFAULT_REMINDER_SETTINGS, ...(blob.__reminderSettings as Partial<ReminderSettings>) };
   }
   return DEFAULT_REMINDER_SETTINGS;
 }
@@ -641,34 +444,10 @@ export async function saveReminderSettings(
   data: Partial<ReminderSettings>
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
-
-    let existing: Record<string, unknown> = {};
-    if (salon.businessHours) {
-      try {
-        const prev = JSON.parse(salon.businessHours);
-        if (prev && typeof prev === "object" && !Array.isArray(prev)) {
-          existing = prev;
-        } else if (Array.isArray(prev)) {
-          existing = { __hours: prev };
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    const current = (existing.__reminderSettings as Partial<ReminderSettings>) ?? {};
-    const merged = {
-      ...existing,
-      __reminderSettings: { ...DEFAULT_REMINDER_SETTINGS, ...current, ...data },
-    };
-
-    await prisma.salon.update({
-      where: { id: salon.id },
-      data: { updatedAt: new Date(), businessHours: JSON.stringify(merged) },
-    });
-
+    const salonId = await getCurrentSalonId();
+    const blob = await readSalonBlob(salonId);
+    const current = (blob.__reminderSettings as Partial<ReminderSettings>) ?? {};
+    await writeSalonBlobKey(salonId, "__reminderSettings", { ...DEFAULT_REMINDER_SETTINGS, ...current, ...data });
     return { success: true };
   } catch (err) {
     console.error("[saveReminderSettings]", err);
@@ -676,7 +455,7 @@ export async function saveReminderSettings(
   }
 }
 
-// ─── Revenue Goals ────────────────────────────────────────────────────────
+// ─── Revenue Goals ────────────────────────────────────────────────────────────
 
 export interface RevenueGoals {
   weekly: number;
@@ -691,15 +470,10 @@ const DEFAULT_REVENUE_GOALS: RevenueGoals = {
 };
 
 export async function getRevenueGoals(): Promise<RevenueGoals> {
-  const salon = await prisma.salon.findFirst({ select: { businessHours: true } });
-  if (!salon?.businessHours) return DEFAULT_REVENUE_GOALS;
-  try {
-    const parsed = JSON.parse(salon.businessHours);
-    if (parsed && parsed.__revenueGoals) {
-      return { ...DEFAULT_REVENUE_GOALS, ...parsed.__revenueGoals };
-    }
-  } catch {
-    // ignore
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
+  if (blob.__revenueGoals) {
+    return { ...DEFAULT_REVENUE_GOALS, ...(blob.__revenueGoals as Partial<RevenueGoals>) };
   }
   return DEFAULT_REVENUE_GOALS;
 }
@@ -708,33 +482,8 @@ export async function saveRevenueGoals(
   goals: RevenueGoals
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
-
-    let existing: Record<string, unknown> = {};
-    if (salon.businessHours) {
-      try {
-        const prev = JSON.parse(salon.businessHours);
-        if (prev && typeof prev === "object" && !Array.isArray(prev)) {
-          existing = prev;
-        } else if (Array.isArray(prev)) {
-          existing = { __hours: prev };
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    const merged = { ...existing, __revenueGoals: goals };
-
-    await prisma.salon.update({
-      where: { id: salon.id },
-      data: {
-        updatedAt: new Date(),
-        businessHours: JSON.stringify(merged),
-      },
-    });
-
+    const salonId = await getCurrentSalonId();
+    await writeSalonBlobKey(salonId, "__revenueGoals", goals);
     return { success: true };
   } catch (err) {
     console.error("[saveRevenueGoals]", err);
@@ -758,7 +507,7 @@ export async function updateRevenueGoals(goals: {
   });
 }
 
-// ─── Business Hours (dedicated read/write) ───────────────────────────────────
+// ─── Business Hours (dedicated read/write) ───────────────────────────────────────
 
 export interface BusinessHourEntry {
   day: string;
@@ -795,22 +544,14 @@ const DEFAULT_BUSINESS_HOURS_CONFIG: BusinessHoursConfig = {
 };
 
 export async function getBusinessHours(): Promise<BusinessHoursConfig> {
-  const salon = await prisma.salon.findFirst({ select: { businessHours: true } });
-  if (!salon?.businessHours) return DEFAULT_BUSINESS_HOURS_CONFIG;
-  try {
-    const parsed = JSON.parse(salon.businessHours);
-    // Support legacy plain array format
-    if (Array.isArray(parsed) && parsed.length === 7) {
-      return { weeklyHours: parsed as BusinessHourEntry[], specialHours: [] };
-    }
-    if (parsed && parsed.__businessHours) {
-      return { ...DEFAULT_BUSINESS_HOURS_CONFIG, ...parsed.__businessHours };
-    }
-    if (parsed && parsed.__hours && Array.isArray(parsed.__hours)) {
-      return { weeklyHours: parsed.__hours as BusinessHourEntry[], specialHours: [] };
-    }
-  } catch {
-    // ignore
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
+  // Support legacy plain array format stored under __hours
+  if (blob.__hours && Array.isArray(blob.__hours)) {
+    return { weeklyHours: blob.__hours as BusinessHourEntry[], specialHours: [] };
+  }
+  if (blob.__businessHours) {
+    return { ...DEFAULT_BUSINESS_HOURS_CONFIG, ...(blob.__businessHours as Partial<BusinessHoursConfig>) };
   }
   return DEFAULT_BUSINESS_HOURS_CONFIG;
 }
@@ -819,30 +560,8 @@ export async function saveBusinessHours(
   config: BusinessHoursConfig
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
-
-    let existing: Record<string, unknown> = {};
-    if (salon.businessHours) {
-      try {
-        const prev = JSON.parse(salon.businessHours);
-        if (prev && typeof prev === "object" && !Array.isArray(prev)) {
-          existing = prev;
-        } else if (Array.isArray(prev)) {
-          existing = { __hours: prev };
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    const merged = { ...existing, __businessHours: config };
-
-    await prisma.salon.update({
-      where: { id: salon.id },
-      data: { updatedAt: new Date(), businessHours: JSON.stringify(merged) },
-    });
-
+    const salonId = await getCurrentSalonId();
+    await writeSalonBlobKey(salonId, "__businessHours", config);
     return { success: true };
   } catch (err) {
     console.error("[saveBusinessHours]", err);
@@ -850,7 +569,7 @@ export async function saveBusinessHours(
   }
 }
 
-// ─── User / Team Management ───────────────────────────────────────────────────
+// ─── User / Team Management ───────────────────────────────────────────────────────
 
 const createUserSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -870,14 +589,13 @@ export async function createUser(
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const id = randomUUID();
     await prisma.user.create({
       data: {
         id,
-        salonId: salon.id,
+        salonId,
         name: parsed.data.name,
         email: parsed.data.email || null,
         phone: parsed.data.phone || null,
@@ -920,7 +638,7 @@ export async function deleteUser(
   }
 }
 
-// ─── Add Branch ────────────────────────────────────────────────────────────
+// ─── Add Branch ────────────────────────────────────────────────────────────────
 
 const addBranchSchema = z.object({
   name: z.string().min(1, "Branch name is required"),
@@ -971,34 +689,7 @@ export async function addBranch(
   }
 }
 
-// ─── Shared helper ────────────────────────────────────────────────────────────
-
-async function loadBusinessHoursBlob(): Promise<Record<string, unknown>> {
-  const salon = await prisma.salon.findFirst({ select: { businessHours: true } });
-  if (!salon?.businessHours) return {};
-  try {
-    const parsed = JSON.parse(salon.businessHours);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
-    if (Array.isArray(parsed)) return { __hours: parsed };
-  } catch { /* ignore */ }
-  return {};
-}
-
-async function saveBusinessHoursKey(key: string, value: unknown): Promise<{ success: true } | { success: false; error: string }> {
-  try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
-    const existing = await loadBusinessHoursBlob();
-    const merged = { ...existing, [key]: value };
-    await prisma.salon.update({ where: { id: salon.id }, data: { updatedAt: new Date(), businessHours: JSON.stringify(merged) } });
-    return { success: true };
-  } catch (err) {
-    console.error(`[saveBusinessHoursKey:${key}]`, err);
-    return { success: false, error: "Failed to save settings" };
-  }
-}
-
-// ─── Blackout Dates ───────────────────────────────────────────────────────────
+// ─── Blackout Dates ───────────────────────────────────────────────────────────────
 
 export interface BlackoutDate {
   id: string;
@@ -1009,7 +700,8 @@ export interface BlackoutDate {
 }
 
 export async function getBlackoutDates(): Promise<BlackoutDate[]> {
-  const blob = await loadBusinessHoursBlob();
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
   if (Array.isArray(blob.__blackoutDates)) return blob.__blackoutDates as BlackoutDate[];
   return [];
 }
@@ -1017,19 +709,23 @@ export async function getBlackoutDates(): Promise<BlackoutDate[]> {
 export async function addBlackoutDate(
   data: Omit<BlackoutDate, "id">
 ): Promise<{ success: boolean; error?: string }> {
-  const blob = await loadBusinessHoursBlob();
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
   const current = Array.isArray(blob.__blackoutDates) ? (blob.__blackoutDates as BlackoutDate[]) : [];
   const next: BlackoutDate = { id: randomUUID(), ...data };
-  return saveBusinessHoursKey("__blackoutDates", [...current, next]);
+  await writeSalonBlobKey(salonId, "__blackoutDates", [...current, next]);
+  return { success: true };
 }
 
 export async function removeBlackoutDate(id: string): Promise<{ success: boolean; error?: string }> {
-  const blob = await loadBusinessHoursBlob();
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
   const current = Array.isArray(blob.__blackoutDates) ? (blob.__blackoutDates as BlackoutDate[]) : [];
-  return saveBusinessHoursKey("__blackoutDates", current.filter((b) => b.id !== id));
+  await writeSalonBlobKey(salonId, "__blackoutDates", current.filter((b) => b.id !== id));
+  return { success: true };
 }
 
-// ─── Service Booking Settings ─────────────────────────────────────────────────
+// ─── Service Booking Settings ─────────────────────────────────────────────────────
 
 export interface ServiceBookingSetting {
   onlineBookingEnabled: boolean;
@@ -1041,7 +737,8 @@ export interface ServiceBookingSetting {
 }
 
 export async function getServiceBookingSettings(): Promise<Record<string, ServiceBookingSetting>> {
-  const blob = await loadBusinessHoursBlob();
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
   if (blob.__serviceBookingSettings && typeof blob.__serviceBookingSettings === "object" && !Array.isArray(blob.__serviceBookingSettings)) {
     return blob.__serviceBookingSettings as Record<string, ServiceBookingSetting>;
   }
@@ -1051,10 +748,12 @@ export async function getServiceBookingSettings(): Promise<Record<string, Servic
 export async function saveServiceBookingSettings(
   settings: Record<string, ServiceBookingSetting>
 ): Promise<{ success: boolean; error?: string }> {
-  return saveBusinessHoursKey("__serviceBookingSettings", settings);
+  const salonId = await getCurrentSalonId();
+  await writeSalonBlobKey(salonId, "__serviceBookingSettings", settings);
+  return { success: true };
 }
 
-// ─── Staff Booking Settings ───────────────────────────────────────────────────
+// ─── Staff Booking Settings ───────────────────────────────────────────────────────
 
 export interface StaffBookingSetting {
   acceptsOnlineBookings: boolean;
@@ -1063,7 +762,8 @@ export interface StaffBookingSetting {
 }
 
 export async function getStaffBookingSettings(): Promise<Record<string, StaffBookingSetting>> {
-  const blob = await loadBusinessHoursBlob();
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
   if (blob.__staffBookingSettings && typeof blob.__staffBookingSettings === "object" && !Array.isArray(blob.__staffBookingSettings)) {
     return blob.__staffBookingSettings as Record<string, StaffBookingSetting>;
   }
@@ -1073,10 +773,12 @@ export async function getStaffBookingSettings(): Promise<Record<string, StaffBoo
 export async function saveStaffBookingSettings(
   settings: Record<string, StaffBookingSetting>
 ): Promise<{ success: boolean; error?: string }> {
-  return saveBusinessHoursKey("__staffBookingSettings", settings);
+  const salonId = await getCurrentSalonId();
+  await writeSalonBlobKey(salonId, "__staffBookingSettings", settings);
+  return { success: true };
 }
 
-// ─── Confirmation Templates ───────────────────────────────────────────────────
+// ─── Confirmation Templates ───────────────────────────────────────────────────────
 
 export interface ConfirmationTemplate {
   smsBody?: string;
@@ -1121,7 +823,8 @@ const DEFAULT_CONFIRMATION_TEMPLATES: ConfirmationTemplates = {
 };
 
 export async function getConfirmationTemplates(): Promise<ConfirmationTemplates> {
-  const blob = await loadBusinessHoursBlob();
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
   if (blob.__confirmationTemplates && typeof blob.__confirmationTemplates === "object" && !Array.isArray(blob.__confirmationTemplates)) {
     return { ...DEFAULT_CONFIRMATION_TEMPLATES, ...(blob.__confirmationTemplates as Partial<ConfirmationTemplates>) };
   }
@@ -1131,10 +834,12 @@ export async function getConfirmationTemplates(): Promise<ConfirmationTemplates>
 export async function saveConfirmationTemplates(
   templates: ConfirmationTemplates
 ): Promise<{ success: boolean; error?: string }> {
-  return saveBusinessHoursKey("__confirmationTemplates", templates);
+  const salonId = await getCurrentSalonId();
+  await writeSalonBlobKey(salonId, "__confirmationTemplates", templates);
+  return { success: true };
 }
 
-// ─── Salon Info (branding page) ───────────────────────────────────────────────
+// ─── Salon Info (branding page) ───────────────────────────────────────────────────
 
 export async function updateSalonInfo(data: {
   name?: string;
@@ -1152,13 +857,12 @@ export async function updateSalonInfo(data: {
   requireTaxId?: boolean;
 }): Promise<{ success: boolean; error?: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const { tagline, requireTaxId, ...salonFields } = data;
 
     await prisma.salon.update({
-      where: { id: salon.id },
+      where: { id: salonId },
       data: {
         updatedAt: new Date(),
         ...(salonFields.name !== undefined && { name: salonFields.name }),
@@ -1177,14 +881,8 @@ export async function updateSalonInfo(data: {
 
     // Store tagline and requireTaxId inside businessHours JSON
     if (tagline !== undefined || requireTaxId !== undefined) {
-      const existing = await loadBusinessHoursBlob();
-      const merged: Record<string, unknown> = { ...existing };
-      if (tagline !== undefined) merged.__tagline = tagline;
-      if (requireTaxId !== undefined) merged.__requireTaxId = requireTaxId;
-      await prisma.salon.update({
-        where: { id: salon.id },
-        data: { updatedAt: new Date(), businessHours: JSON.stringify(merged) },
-      });
+      if (tagline !== undefined) await writeSalonBlobKey(salonId, "__tagline", tagline);
+      if (requireTaxId !== undefined) await writeSalonBlobKey(salonId, "__requireTaxId", requireTaxId);
     }
 
     return { success: true };
@@ -1196,10 +894,9 @@ export async function updateSalonInfo(data: {
 
 export async function updateSalonLogo(base64: string): Promise<{ success: boolean; error?: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
     await prisma.salon.update({
-      where: { id: salon.id },
+      where: { id: salonId },
       data: { updatedAt: new Date(), logo: base64 || null },
     });
     return { success: true };
@@ -1212,7 +909,9 @@ export async function updateSalonLogo(base64: string): Promise<{ success: boolea
 export async function updateBusinessHoursGrid(
   hours: Record<string, { open: boolean; openTime: string; closeTime: string }>
 ): Promise<{ success: boolean; error?: string }> {
-  return saveBusinessHoursKey("__businessHours", hours);
+  const salonId = await getCurrentSalonId();
+  await writeSalonBlobKey(salonId, "__businessHours", hours);
+  return { success: true };
 }
 
 export async function updateSocialLinks(links: {
@@ -1221,10 +920,12 @@ export async function updateSocialLinks(links: {
   tiktok?: string;
   googleMaps?: string;
 }): Promise<{ success: boolean; error?: string }> {
-  return saveBusinessHoursKey("__socialLinks", links);
+  const salonId = await getCurrentSalonId();
+  await writeSalonBlobKey(salonId, "__socialLinks", links);
+  return { success: true };
 }
 
-// ─── Extended Booking Rules (booking settings page) ───────────────────────────
+// ─── Extended Booking Rules (booking settings page) ───────────────────────────────
 
 export interface ExtendedBookingRules {
   // Booking window
@@ -1269,7 +970,8 @@ const DEFAULT_EXTENDED_BOOKING_RULES: ExtendedBookingRules = {
 };
 
 export async function getExtendedBookingRules(): Promise<ExtendedBookingRules> {
-  const blob = await loadBusinessHoursBlob();
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
   if (blob.__extendedBookingRules && typeof blob.__extendedBookingRules === "object") {
     return { ...DEFAULT_EXTENDED_BOOKING_RULES, ...(blob.__extendedBookingRules as Partial<ExtendedBookingRules>) };
   }
@@ -1280,25 +982,31 @@ export async function updateBookingRules(
   rules: Partial<ExtendedBookingRules>
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const existing = await loadBusinessHoursBlob();
-    const current = (existing.__extendedBookingRules as Partial<ExtendedBookingRules>) ?? {};
-    return saveBusinessHoursKey("__extendedBookingRules", {
+    const salonId = await getCurrentSalonId();
+    const blob = await readSalonBlob(salonId);
+    const current = (blob.__extendedBookingRules as Partial<ExtendedBookingRules>) ?? {};
+    await writeSalonBlobKey(salonId, "__extendedBookingRules", {
       ...DEFAULT_EXTENDED_BOOKING_RULES,
       ...current,
       ...rules,
     });
+    return { success: true };
   } catch (err) {
     console.error("[updateBookingRules]", err);
     return { success: false, error: "Failed to save booking rules" };
   }
 }
 
-// ── Notification preferences ───────────────────────────────────────────────
+// ── Notification preferences ───────────────────────────────────────────────────
 
 export type NotificationPrefs = Record<string, boolean>;
 
 export async function getNotificationPrefs(): Promise<NotificationPrefs> {
-  const salon = await prisma.salon.findFirst({ select: { notificationPrefs: true } });
+  const salonId = await getCurrentSalonId();
+  const salon = await prisma.salon.findUnique({
+    where: { id: salonId },
+    select: { notificationPrefs: true },
+  });
   if (!salon?.notificationPrefs) return {};
   try {
     return JSON.parse(salon.notificationPrefs) as NotificationPrefs;
@@ -1311,10 +1019,9 @@ export async function saveNotificationPrefs(
   prefs: NotificationPrefs
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
     await prisma.salon.update({
-      where: { id: salon.id },
+      where: { id: salonId },
       data: { notificationPrefs: JSON.stringify(prefs), updatedAt: new Date() },
     });
     return { success: true };

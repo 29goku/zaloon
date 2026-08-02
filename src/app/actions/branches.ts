@@ -1,7 +1,8 @@
 "use server";
 
 import { randomUUID } from "crypto";
-import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
+import { readSalonBlob, writeSalonBlobKey } from "@/lib/repositories/salon";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -30,34 +31,6 @@ export interface Branch {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function readBusinessHours(): Promise<Record<string, unknown>> {
-  const salon = await prisma.salon.findFirst({ select: { businessHours: true } });
-  if (!salon?.businessHours) return {};
-  try {
-    const parsed = JSON.parse(salon.businessHours);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-    // Legacy plain array — promote to keyed object
-    return { __hours: parsed };
-  } catch {
-    return {};
-  }
-}
-
-async function writeBusinessHours(
-  patch: Record<string, unknown>
-): Promise<void> {
-  const salon = await prisma.salon.findFirst();
-  if (!salon) return;
-  const existing = await readBusinessHours();
-  const merged = { ...existing, ...patch };
-  await prisma.salon.update({
-    where: { id: salon.id },
-    data: { updatedAt: new Date(), businessHours: JSON.stringify(merged) },
-  });
-}
-
 function defaultHours(): Record<string, BranchHours> {
   const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
   const result: Record<string, BranchHours> = {};
@@ -70,7 +43,8 @@ function defaultHours(): Record<string, BranchHours> {
 // ─── Public actions ───────────────────────────────────────────────────────────
 
 export async function getBranches(): Promise<Branch[]> {
-  const data = await readBusinessHours();
+  const salonId = await getCurrentSalonId();
+  const data = await readSalonBlob(salonId);
   const raw = data.__branches;
   if (!Array.isArray(raw)) return [];
   return raw as Branch[];
@@ -81,6 +55,7 @@ export async function createBranch(
   data: Omit<Branch, "id" | "createdAt" | "isMain">
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   try {
+    const salonId = await getCurrentSalonId();
     const branches = await getBranches();
     const newBranch: Branch = {
       ...data,
@@ -93,7 +68,7 @@ export async function createBranch(
     };
 
     branches.push(newBranch);
-    await writeBusinessHours({ __branches: branches });
+    await writeSalonBlobKey(salonId, "__branches", branches);
     return { success: true, id: newBranch.id };
   } catch (err) {
     console.error("[createBranch]", err);
@@ -122,6 +97,7 @@ export async function updateBranch(
   data: Partial<Branch>
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const salonId = await getCurrentSalonId();
     const branches = await getBranches();
     const idx = branches.findIndex((b) => b.id === id);
     if (idx === -1) return { success: false, error: "Branch not found" };
@@ -132,7 +108,7 @@ export async function updateBranch(
     }
 
     branches[idx] = { ...branches[idx], ...data, id };
-    await writeBusinessHours({ __branches: branches });
+    await writeSalonBlobKey(salonId, "__branches", branches);
     return { success: true };
   } catch (err) {
     console.error("[updateBranch]", err);
@@ -144,6 +120,7 @@ export async function deleteBranch(
   id: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const salonId = await getCurrentSalonId();
     const branches = await getBranches();
     const branch = branches.find((b) => b.id === id);
     if (!branch) return { success: false, error: "Branch not found" };
@@ -152,7 +129,7 @@ export async function deleteBranch(
     }
 
     const updated = branches.filter((b) => b.id !== id);
-    await writeBusinessHours({ __branches: updated });
+    await writeSalonBlobKey(salonId, "__branches", updated);
     return { success: true };
   } catch (err) {
     console.error("[deleteBranch]", err);
@@ -171,12 +148,13 @@ export async function setMainBranch(
   id: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const salonId = await getCurrentSalonId();
     const branches = await getBranches();
     const exists = branches.some((b) => b.id === id);
     if (!exists) return { success: false, error: "Branch not found" };
 
     const updated = branches.map((b) => ({ ...b, isMain: b.id === id }));
-    await writeBusinessHours({ __branches: updated });
+    await writeSalonBlobKey(salonId, "__branches", updated);
     return { success: true };
   } catch (err) {
     console.error("[setMainBranch]", err);

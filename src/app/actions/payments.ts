@@ -2,6 +2,7 @@
 
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 import { applyCoupon } from "./coupons";
 import { redeemGiftCard } from "./gift-cards";
 import { createLedgerEntry } from "./ledger";
@@ -86,8 +87,13 @@ export async function checkoutQuickPay(
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    let salonId: string;
+    try {
+      salonId = await getCurrentSalonId();
+    } catch {
+      return { success: false, error: "No salon found" };
+    }
+    const salon = await prisma.salon.findUniqueOrThrow({ where: { id: salonId }, select: { id: true, invoicePrefix: true } });
 
     // ── Subtotal ─────────────────────────────────────────────────────────────
     const subtotal = items.reduce((sum, item) => sum + item.price * item.qty, 0);
@@ -247,14 +253,18 @@ export async function createQuickPayment(data: {
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    let salonId: string;
+    try {
+      salonId = await getCurrentSalonId();
+    } catch {
+      return { success: false, error: "No salon found" };
+    }
 
     const invId = randomUUID();
     await prisma.invoice.create({
       data: {
         id: invId,
-        salonId: salon.id,
+        salonId,
         clientId: data.clientId ?? null,
         appointmentId: null,
         total: data.amount,

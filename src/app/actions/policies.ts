@@ -3,6 +3,8 @@
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
+import { readSalonBlob, writeSalonBlobKey } from "@/lib/repositories/salon";
 
 // ─── Policy interfaces ─────────────────────────────────────────────────────────
 
@@ -51,45 +53,13 @@ const DEFAULT_DEPOSIT_POLICY: DepositPolicy = {
   policyText: "We require a $50 deposit to secure your booking.",
 };
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
-
-async function getSalonBusinessHours(): Promise<{
-  salonId: string;
-  parsed: Record<string, unknown>;
-  raw: string | null;
-}> {
-  const salon = await prisma.salon.findFirst({
-    select: { id: true, businessHours: true },
-  });
-  if (!salon) throw new Error("No salon found");
-
-  let parsed: Record<string, unknown> = {};
-  if (salon.businessHours) {
-    try {
-      parsed = JSON.parse(salon.businessHours);
-    } catch {
-      // ignore malformed JSON
-    }
-  }
-  return { salonId: salon.id, parsed, raw: salon.businessHours };
-}
-
-async function saveSalonBusinessHours(
-  salonId: string,
-  data: Record<string, unknown>
-): Promise<void> {
-  await prisma.salon.update({
-    where: { id: salonId },
-    data: { businessHours: JSON.stringify(data), updatedAt: new Date() },
-  });
-}
-
 // ─── Cancellation policy ───────────────────────────────────────────────────────
 
 export async function getCancellationPolicy(): Promise<CancellationPolicy> {
   try {
-    const { parsed } = await getSalonBusinessHours();
-    const stored = parsed.__cancellationPolicy as CancellationPolicy | undefined;
+    const salonId = await getCurrentSalonId();
+    const blob = await readSalonBlob(salonId);
+    const stored = blob.__cancellationPolicy as CancellationPolicy | undefined;
     if (!stored) return { ...DEFAULT_CANCELLATION_POLICY };
     return { ...DEFAULT_CANCELLATION_POLICY, ...stored };
   } catch {
@@ -101,11 +71,8 @@ export async function saveCancellationPolicy(
   policy: CancellationPolicy
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const { salonId, parsed } = await getSalonBusinessHours();
-    await saveSalonBusinessHours(salonId, {
-      ...parsed,
-      __cancellationPolicy: policy,
-    });
+    const salonId = await getCurrentSalonId();
+    await writeSalonBlobKey(salonId, "__cancellationPolicy", policy);
     revalidatePath("/dashboard/settings/cancellation-policy");
     return { success: true };
   } catch (err) {
@@ -118,8 +85,9 @@ export async function saveCancellationPolicy(
 
 export async function getDepositPolicy(): Promise<DepositPolicy> {
   try {
-    const { parsed } = await getSalonBusinessHours();
-    const stored = parsed.__depositPolicy as DepositPolicy | undefined;
+    const salonId = await getCurrentSalonId();
+    const blob = await readSalonBlob(salonId);
+    const stored = blob.__depositPolicy as DepositPolicy | undefined;
     if (!stored) return { ...DEFAULT_DEPOSIT_POLICY };
     return { ...DEFAULT_DEPOSIT_POLICY, ...stored };
   } catch {
@@ -131,11 +99,8 @@ export async function saveDepositPolicy(
   policy: DepositPolicy
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const { salonId, parsed } = await getSalonBusinessHours();
-    await saveSalonBusinessHours(salonId, {
-      ...parsed,
-      __depositPolicy: policy,
-    });
+    const salonId = await getCurrentSalonId();
+    await writeSalonBlobKey(salonId, "__depositPolicy", policy);
     revalidatePath("/dashboard/settings/deposit-policy");
     return { success: true };
   } catch (err) {
@@ -168,8 +133,7 @@ export async function applyCancellationFee(
     });
     if (!appointment) return { success: false, error: "Appointment not found" };
 
-    const salon = await prisma.salon.findFirst({ select: { id: true } });
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const serviceTotal = appointment.AppointmentService.reduce(
       (sum, as) => sum + as.Service.price,
@@ -202,7 +166,7 @@ export async function applyCancellationFee(
     const invoice = await prisma.invoice.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         clientId: appointment.clientId ?? null,
         appointmentId: appointment.id,
         total: feeAmount,

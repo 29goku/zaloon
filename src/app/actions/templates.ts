@@ -1,8 +1,9 @@
 "use server";
 
-import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
+import { getCurrentSalonId } from "@/lib/repositories/base";
+import { readSalonBlob, writeSalonBlobKey } from "@/lib/repositories/salon";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -123,37 +124,16 @@ const DEFAULT_TEMPLATES: MessageTemplate[] = [
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 async function getTemplatesBlob(): Promise<MessageTemplate[]> {
-  const salon = await prisma.salon.findFirst({ select: { businessHours: true } });
-  if (!salon?.businessHours) return [...DEFAULT_TEMPLATES];
-
-  try {
-    const blob = JSON.parse(salon.businessHours) as Record<string, unknown>;
-    const templates = blob.__messageTemplates as MessageTemplate[] | undefined;
-    if (!templates || templates.length === 0) return [...DEFAULT_TEMPLATES];
-    return templates;
-  } catch {
-    return [...DEFAULT_TEMPLATES];
-  }
+  const salonId = await getCurrentSalonId();
+  const blob = await readSalonBlob(salonId);
+  const templates = blob.__messageTemplates as MessageTemplate[] | undefined;
+  if (!templates || templates.length === 0) return [...DEFAULT_TEMPLATES];
+  return templates;
 }
 
 async function saveTemplatesBlob(templates: MessageTemplate[]): Promise<void> {
-  const salon = await prisma.salon.findFirst();
-  if (!salon) return;
-
-  let existing: Record<string, unknown> = {};
-  if (salon.businessHours) {
-    try {
-      existing = JSON.parse(salon.businessHours) as Record<string, unknown>;
-    } catch {
-      // malformed — start fresh
-    }
-  }
-
-  const updated = JSON.stringify({ ...existing, __messageTemplates: templates });
-  await prisma.salon.update({
-    where: { id: salon.id },
-    data: { businessHours: updated, updatedAt: new Date() },
-  });
+  const salonId = await getCurrentSalonId();
+  await writeSalonBlobKey(salonId, "__messageTemplates", templates);
 }
 
 // ── Public actions ─────────────────────────────────────────────────────────────

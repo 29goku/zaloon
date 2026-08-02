@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -31,8 +32,8 @@ export interface ClientPackagePurchase {
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 async function getSalonWithBusinessHours() {
-  const salon = await prisma.salon.findFirst();
-  if (!salon) return null;
+  const salonId = await getCurrentSalonId();
+  const salon = await prisma.salon.findUniqueOrThrow({ where: { id: salonId } });
 
   let parsed: Record<string, unknown> = {};
   try {

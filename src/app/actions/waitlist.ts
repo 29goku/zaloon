@@ -4,6 +4,7 @@ import { z } from "zod";
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -79,8 +80,10 @@ export async function addToWaitlist(
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) {
+    let salonId: string;
+    try {
+      salonId = await getCurrentSalonId();
+    } catch {
       return { success: false, error: "No salon found" };
     }
 
@@ -89,7 +92,7 @@ export async function addToWaitlist(
 
     // Determine next position
     const lastEntry = await prisma.waitlist.findFirst({
-      where: { salonId: salon.id, status: "WAITING" },
+      where: { salonId, status: "WAITING" },
       orderBy: { position: "desc" },
       select: { position: true },
     });
@@ -98,7 +101,7 @@ export async function addToWaitlist(
     const entry = await prisma.waitlist.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         name,
         phone: phone || null,
         clientId: clientId || null,
@@ -149,8 +152,12 @@ export async function convertToAppointment(
   const { staffId, serviceIds, date, startTime, notes, clientId } = parsed.data;
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    let salonId: string;
+    try {
+      salonId = await getCurrentSalonId();
+    } catch {
+      return { success: false, error: "No salon found" };
+    }
 
     const services = await prisma.service.findMany({
       where: { id: { in: serviceIds } },
@@ -162,7 +169,7 @@ export async function convertToAppointment(
       const appointment = await tx.appointment.create({
         data: {
           id: randomUUID(),
-          salonId: salon.id,
+          salonId,
           clientId: clientId ?? null,
           staffId,
           date,
@@ -371,8 +378,12 @@ export async function convertWaitlistToAppointment(
   if (!waitlistId) return { success: false, error: "Missing waitlist entry id" };
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    let salonId: string;
+    try {
+      salonId = await getCurrentSalonId();
+    } catch {
+      return { success: false, error: "No salon found" };
+    }
 
     const entry = await prisma.waitlist.findUnique({ where: { id: waitlistId } });
     if (!entry) return { success: false, error: "Waitlist entry not found" };
@@ -389,7 +400,7 @@ export async function convertWaitlistToAppointment(
       const appointment = await tx.appointment.create({
         data: {
           id: appointmentId,
-          salonId: salon.id,
+          salonId,
           clientId: entry.clientId ?? null,
           staffId: slotData.staffId,
           date: slotData.date,
@@ -413,7 +424,7 @@ export async function convertWaitlistToAppointment(
       await tx.reminder.create({
         data: {
           id: randomUUID(),
-          salonId: salon.id,
+          salonId,
           appointmentId: appointment.id,
           clientId: entry.clientId ?? null,
           type: "APPOINTMENT_REMINDER",

@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 // ── Schemas ────────────────────────────────────────────────────────────────
 
@@ -52,13 +53,12 @@ export async function createCategory(
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const category = await prisma.serviceCategory.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         name: parsed.data.name,
         icon: parsed.data.icon ?? null,
       },
@@ -82,13 +82,12 @@ export async function createService(
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const service = await prisma.service.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         categoryId: parsed.data.categoryId,
         name: parsed.data.name,
         price: parsed.data.price,
@@ -196,11 +195,10 @@ export async function bulkUpdatePrices(
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const services = await prisma.service.findMany({
-      where: { salonId: salon.id },
+      where: { salonId },
       select: { id: true, price: true },
     });
 
@@ -291,12 +289,16 @@ export async function reorderCategories(
   orderedIds: string[]
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
+
+    const salon = await prisma.salon.findUnique({
+      where: { id: salonId },
+      select: { businessHours: true },
+    });
 
     // Persist the order in Salon.businessHours as __categoryOrder
     let hours: Record<string, unknown> = {};
-    if (salon.businessHours) {
+    if (salon?.businessHours) {
       try {
         hours = JSON.parse(salon.businessHours);
       } catch {
@@ -306,7 +308,7 @@ export async function reorderCategories(
     hours.__categoryOrder = orderedIds;
 
     await prisma.salon.update({
-      where: { id: salon.id },
+      where: { id: salonId },
       data: { businessHours: JSON.stringify(hours) },
     });
 
@@ -329,8 +331,10 @@ export type ImportServiceInput = {
 export async function importServices(
   rows: ImportServiceInput[]
 ): Promise<{ success: boolean; imported: number; errors: string[] }> {
-  const salon = await prisma.salon.findFirst();
-  if (!salon) {
+  let salonId: string;
+  try {
+    salonId = await getCurrentSalonId();
+  } catch {
     return { success: false, imported: 0, errors: ["No salon found"] };
   }
 
@@ -360,14 +364,14 @@ export async function importServices(
       // Resolve or create category
       const categoryName = raw.category?.trim() || "Imported";
       let category = await prisma.serviceCategory.findFirst({
-        where: { salonId: salon.id, name: categoryName },
+        where: { salonId, name: categoryName },
         select: { id: true },
       });
       if (!category) {
         category = await prisma.serviceCategory.create({
           data: {
             id: randomUUID(),
-            salonId: salon.id,
+            salonId,
             name: categoryName,
           },
           select: { id: true },
@@ -376,7 +380,7 @@ export async function importServices(
 
       // Skip if service with same name + price already exists
       const existing = await prisma.service.findFirst({
-        where: { salonId: salon.id, name, price },
+        where: { salonId, name, price },
         select: { id: true },
       });
       if (existing) continue;
@@ -384,7 +388,7 @@ export async function importServices(
       await prisma.service.create({
         data: {
           id: randomUUID(),
-          salonId: salon.id,
+          salonId,
           categoryId: category.id,
           name,
           price,

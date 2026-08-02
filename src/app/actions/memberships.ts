@@ -4,6 +4,7 @@ import { z } from "zod";
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 // ── Schemas ────────────────────────────────────────────────────────────────
 
@@ -38,13 +39,12 @@ export async function createPlan(
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const plan = await prisma.membershipPlan.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         name: parsed.data.name,
         price: parsed.data.price,
         sessionsPerMonth: parsed.data.sessionsPerMonth,
@@ -242,8 +242,7 @@ export async function renewMembership(
       return { success: false, error: "Only active memberships can be renewed" };
     }
 
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     // Extend end date by 1 month from current endDate (or today if not set)
     const baseDate = membership.endDate
@@ -266,7 +265,7 @@ export async function renewMembership(
       prisma.invoice.create({
         data: {
           id: invoiceId,
-          salonId: salon.id,
+          salonId,
           clientId: membership.clientId,
           total: membership.Plan.price,
           discount: 0,

@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 // ── Zod schemas ────────────────────────────────────────────────────────────────
 
@@ -53,12 +54,11 @@ export async function createCoupon(data: {
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     // Check for duplicate code within this salon
     const existing = await prisma.coupon.findFirst({
-      where: { salonId: salon.id, code: parsed.data.code },
+      where: { salonId, code: parsed.data.code },
     });
     if (existing) {
       return { success: false, error: "A coupon with this code already exists" };
@@ -67,7 +67,7 @@ export async function createCoupon(data: {
     const coupon = await prisma.coupon.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         code: parsed.data.code,
         type: parsed.data.type,
         value: parsed.data.value,
@@ -202,11 +202,10 @@ export async function validateCoupon(
   if (!code) return { valid: false, discount: 0, error: "Code is required" };
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { valid: false, discount: 0, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const coupon = await prisma.coupon.findFirst({
-      where: { salonId: salon.id, code: code.toUpperCase() },
+      where: { salonId, code: code.toUpperCase() },
     });
 
     if (!coupon) return { valid: false, discount: 0, error: "Coupon not found" };
@@ -267,11 +266,10 @@ export async function applyCoupon(
   if (!code) return { success: false, error: "Code is required" };
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const coupon = await prisma.coupon.findFirst({
-      where: { salonId: salon.id, code: code.toUpperCase() },
+      where: { salonId, code: code.toUpperCase() },
     });
 
     if (!coupon) return { success: false, error: "Coupon not found" };
@@ -292,11 +290,10 @@ export async function applyCoupon(
 
 export async function getCoupons() {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return [];
+    const salonId = await getCurrentSalonId();
 
     return prisma.coupon.findMany({
-      where: { salonId: salon.id },
+      where: { salonId },
       orderBy: { createdAt: "desc" },
     });
   } catch (err) {

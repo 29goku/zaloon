@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 // ── Zod schemas ────────────────────────────────────────────────────────────────
 
@@ -33,8 +34,12 @@ const updateCampaignSchema = z.object({
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
-async function getSalon() {
-  return prisma.salon.findFirst();
+async function getSalonId(): Promise<string | null> {
+  try {
+    return await getCurrentSalonId();
+  } catch {
+    return null;
+  }
 }
 
 type TargetFilterShape = {
@@ -71,8 +76,8 @@ export async function getTargetAudience(filterJson: string): Promise<{
   error?: string;
 }> {
   try {
-    const salon = await getSalon();
-    if (!salon) return { count: 0, preview: [], error: "No salon found" };
+    const salonId = await getSalonId();
+    if (!salonId) return { count: 0, preview: [], error: "No salon found" };
 
     const filter = parseTargetFilter(filterJson);
 
@@ -80,9 +85,9 @@ export async function getTargetAudience(filterJson: string): Promise<{
     let count = 0;
 
     if (filter.filter === "all") {
-      count = await prisma.client.count({ where: { salonId: salon.id } });
+      count = await prisma.client.count({ where: { salonId } });
       clients = await prisma.client.findMany({
-        where: { salonId: salon.id },
+        where: { salonId },
         take: 5,
         select: { id: true, name: true, phone: true, email: true },
         orderBy: { createdAt: "desc" },
@@ -93,7 +98,7 @@ export async function getTargetAudience(filterJson: string): Promise<{
       cutoff.setDate(cutoff.getDate() - days);
       const cutoffStr = cutoff.toISOString().split("T")[0];
       const where = {
-        salonId: salon.id,
+        salonId,
         Appointment: { none: { date: { gte: cutoffStr } } },
       } as const;
       count = await prisma.client.count({ where });
@@ -108,7 +113,7 @@ export async function getTargetAudience(filterJson: string): Promise<{
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
       const where = {
-        salonId: salon.id,
+        salonId,
         birthday: { gte: monthStart, lte: monthEnd },
       } as const;
       count = await prisma.client.count({ where });
@@ -121,7 +126,7 @@ export async function getTargetAudience(filterJson: string): Promise<{
     } else if (filter.filter === "vip") {
       // VIP = clients with loyalty points > 100
       const where = {
-        salonId: salon.id,
+        salonId,
         loyaltyPoints: { gte: 100 },
       } as const;
       count = await prisma.client.count({ where });
@@ -133,7 +138,7 @@ export async function getTargetAudience(filterJson: string): Promise<{
       });
     } else if (filter.filter === "segment" && filter.segmentId) {
       const { getSegmentClientIds } = await import("@/lib/segments");
-      const ids = await getSegmentClientIds(prisma, filter.segmentId);
+      const ids = await getSegmentClientIds(prisma, salonId, filter.segmentId);
       count = ids.length;
       const previewIds = ids.slice(0, 5);
       clients = await prisma.client.findMany({
@@ -150,7 +155,7 @@ export async function getTargetAudience(filterJson: string): Promise<{
         });
       } else {
         // Build dynamic where
-        const where: Record<string, unknown> = { salonId: salon.id };
+        const where: Record<string, unknown> = { salonId };
         if (filter.lastVisitBefore || filter.lastVisitAfter) {
           const dateFilter: Record<string, string> = {};
           if (filter.lastVisitBefore) dateFilter.lte = filter.lastVisitBefore;
@@ -187,9 +192,9 @@ export async function getTargetAudience(filterJson: string): Promise<{
         }));
       }
     } else {
-      count = await prisma.client.count({ where: { salonId: salon.id } });
+      count = await prisma.client.count({ where: { salonId } });
       clients = await prisma.client.findMany({
-        where: { salonId: salon.id },
+        where: { salonId },
         take: 5,
         select: { id: true, name: true, phone: true, email: true },
         orderBy: { createdAt: "desc" },
@@ -230,11 +235,11 @@ export async function getCampaignById(id: string) {
 
 export async function getCampaigns() {
   try {
-    const salon = await getSalon();
-    if (!salon) return [];
+    const salonId = await getSalonId();
+    if (!salonId) return [];
 
     return prisma.campaign.findMany({
-      where: { salonId: salon.id },
+      where: { salonId },
       orderBy: { createdAt: "desc" },
     });
   } catch (err) {
@@ -260,13 +265,13 @@ export async function createCampaign(data: {
   }
 
   try {
-    const salon = await getSalon();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getSalonId();
+    if (!salonId) return { success: false, error: "No salon found" };
 
     const campaign = await prisma.campaign.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         name: parsed.data.name,
         type: parsed.data.type,
         message: parsed.data.message,
@@ -447,13 +452,13 @@ export async function createCampaignAndSend(data: {
   }
 
   try {
-    const salon = await getSalon();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getSalonId();
+    if (!salonId) return { success: false, error: "No salon found" };
 
     const campaign = await prisma.campaign.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         name: parsed.data.name,
         type: parsed.data.type,
         message: parsed.data.message,

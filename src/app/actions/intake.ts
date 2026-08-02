@@ -2,6 +2,7 @@
 
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -59,7 +60,13 @@ const DEFAULT_INTAKE_FIELDS: IntakeField[] = [
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function loadBusinessHoursBlob(): Promise<Record<string, unknown>> {
-  const salon = await prisma.salon.findFirst({ select: { businessHours: true } });
+  let salonId: string;
+  try {
+    salonId = await getCurrentSalonId();
+  } catch {
+    return {};
+  }
+  const salon = await prisma.salon.findUnique({ where: { id: salonId }, select: { businessHours: true } });
   if (!salon?.businessHours) return {};
   try {
     const parsed = JSON.parse(salon.businessHours) as unknown;
@@ -91,8 +98,7 @@ export async function saveIntakeFormFields(
   fields: IntakeField[]
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     // Only persist non-default fields
     const customFields = fields.filter((f) => !f.isDefault);
@@ -101,7 +107,7 @@ export async function saveIntakeFormFields(
     const merged = { ...existing, __intakeFormFields: customFields };
 
     await prisma.salon.update({
-      where: { id: salon.id },
+      where: { id: salonId },
       data: { updatedAt: new Date(), businessHours: JSON.stringify(merged) },
     });
 
@@ -153,7 +159,7 @@ export async function submitIntakeForm(
   data: Record<string, unknown>
 ): Promise<{ success: boolean; clientId?: string; isNew?: boolean; error?: string }> {
   try {
-    const salon = await prisma.salon.findFirst({ where: { slug: salonSlug } });
+    const salon = await prisma.salon.findUnique({ where: { slug: salonSlug } });
     if (!salon) return { success: false, error: "Salon not found" };
 
     const phone = typeof data["__default_phone"] === "string" ? data["__default_phone"].trim() : null;

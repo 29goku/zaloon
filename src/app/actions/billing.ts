@@ -2,6 +2,7 @@
 
 import { stripe } from '@/lib/stripe'
 import { prisma } from '@/lib/prisma'
+import { getCurrentSalonId } from '@/lib/repositories/base'
 
 export interface BillingInvoice {
   id: string
@@ -50,7 +51,9 @@ export async function getBillingInfo(): Promise<BillingInfo> {
     // Look for stripeCustomerId in the salon's settings JSON field or a
     // dedicated column.  For now we store it in the `notificationPrefs` JSON
     // field under key "stripeCustomerId" until a proper migration adds the column.
-    const salon = await prisma.salon.findFirst({
+    const salonId = await getCurrentSalonId()
+    const salon = await prisma.salon.findUnique({
+      where: { id: salonId },
       select: { id: true, notificationPrefs: true },
     })
 

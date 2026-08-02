@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { sendEmail } from "@/lib/email";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 export type ReminderWithRelations = {
   id: string;
@@ -28,11 +29,6 @@ export type ReminderWithRelations = {
 export type ReminderWithAppointment = ReminderWithRelations;
 
 // ── helpers ────────────────────────────────────────────────────────────────────
-
-async function getDefaultSalonId(): Promise<string | null> {
-  const salon = await prisma.salon.findFirst({ select: { id: true } });
-  return salon?.id ?? null;
-}
 
 const reminderInclude = {
   Appointment: {
@@ -67,8 +63,7 @@ export async function scheduleReminder(
       return { success: false, error: "Appointment not found" };
     }
 
-    const salonId = await getDefaultSalonId();
-    if (!salonId) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const [year, month, day] = appointment.date.split("-").map(Number);
     const [hour, minute] = appointment.startTime.split(":").map(Number);
@@ -114,8 +109,7 @@ export async function sendDirectMessage(data: {
   }
 
   try {
-    const salonId = await getDefaultSalonId();
-    if (!salonId) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const now = new Date();
 
@@ -198,9 +192,10 @@ export async function sendAllPendingReminders(): Promise<
   { success: true; count: number } | { success: false; error: string }
 > {
   try {
+    const salonId = await getCurrentSalonId();
     const now = new Date();
     const result = await prisma.reminder.updateMany({
-      where: { status: "PENDING" },
+      where: { salonId, status: "PENDING" },
       data: { status: "SENT", sentAt: now },
     });
 
@@ -242,8 +237,10 @@ export async function getReminders(filter?: {
   status?: string;
   clientId?: string;
 }): Promise<ReminderWithRelations[]> {
+  const salonId = await getCurrentSalonId();
   return prisma.reminder.findMany({
     where: {
+      salonId,
       ...(filter?.status ? { status: filter.status } : {}),
       ...(filter?.clientId ? { clientId: filter.clientId } : {}),
     },
@@ -269,8 +266,9 @@ export async function getRemindersForAppointment(
 export async function getAllReminders(
   filter?: "PENDING" | "SENT" | "FAILED" | "CANCELLED"
 ): Promise<ReminderWithRelations[]> {
+  const salonId = await getCurrentSalonId();
   return prisma.reminder.findMany({
-    where: filter ? { status: filter } : undefined,
+    where: filter ? { salonId, status: filter } : { salonId },
     orderBy: { scheduledAt: "desc" },
     include: reminderInclude,
   }) as Promise<ReminderWithRelations[]>;
@@ -279,7 +277,8 @@ export async function getAllReminders(
 // ── pending reminder count (for sidebar badge) ────────────────────────────────
 
 export async function getPendingReminderCount(): Promise<number> {
-  return prisma.reminder.count({ where: { status: "PENDING" } });
+  const salonId = await getCurrentSalonId();
+  return prisma.reminder.count({ where: { salonId, status: "PENDING" } });
 }
 
 // ── delete reminders in bulk ──────────────────────────────────────────────────
@@ -353,8 +352,7 @@ export async function scheduleRemindersForDate(
   }
 
   try {
-    const salonId = await getDefaultSalonId();
-    if (!salonId) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     // Load all appointments on that date
     const appointments = await prisma.appointment.findMany({
@@ -508,8 +506,7 @@ export async function sendQuickMessage(data: {
   }
 
   try {
-    const salonId = await getDefaultSalonId();
-    if (!salonId) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const scheduledAt = data.scheduledAt ? new Date(data.scheduledAt) : new Date();
     const isImmediate = !data.scheduledAt;
@@ -616,8 +613,11 @@ export async function saveNotificationPrefs(
   prefs: NotificationPrefs
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
+    const salon = await prisma.salon.findUniqueOrThrow({
+      where: { id: salonId },
+      select: { businessHours: true },
+    });
 
     // Parse existing businessHours blob (may contain hours data already)
     let existing: Record<string, unknown> = {};
@@ -632,7 +632,7 @@ export async function saveNotificationPrefs(
     const updated = JSON.stringify({ ...existing, notificationPrefs: prefs });
 
     await prisma.salon.update({
-      where: { id: salon.id },
+      where: { id: salonId },
       data: { businessHours: updated, updatedAt: new Date() },
     });
 
@@ -651,9 +651,10 @@ export async function clearOldReminders(
 ): Promise<{ success: true; count: number } | { success: false; error: string }> {
   if (daysOld < 1) return { success: false, error: "daysOld must be >= 1" };
   try {
+    const salonId = await getCurrentSalonId();
     const cutoff = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000);
     const result = await prisma.reminder.deleteMany({
-      where: { status: "SENT", sentAt: { lt: cutoff } },
+      where: { salonId, status: "SENT", sentAt: { lt: cutoff } },
     });
     revalidatePath("/dashboard/reminders");
     return { success: true, count: result.count };
@@ -685,8 +686,9 @@ export type Notification = {
 // ── generate current notifications from DB state ──────────────────────────────
 
 export async function generateNotifications(): Promise<Notification[]> {
-  const salon = await prisma.salon.findFirst({ select: { id: true } });
-  if (!salon) return [];
+  const salonId = await getCurrentSalonId();
+  if (!salonId) return [];
+  const salon = { id: salonId };
 
   const now = new Date();
   const todayStr = now.toISOString().split("T")[0];
@@ -902,7 +904,11 @@ export async function loadNotificationPrefs(): Promise<NotificationPrefs> {
   };
 
   try {
-    const salon = await prisma.salon.findFirst({ select: { businessHours: true } });
+    const salonId = await getCurrentSalonId();
+    const salon = await prisma.salon.findUnique({
+      where: { id: salonId },
+      select: { businessHours: true },
+    });
     if (!salon?.businessHours) return defaults;
     const blob = JSON.parse(salon.businessHours) as Record<string, unknown>;
     const prefs = blob.notificationPrefs as NotificationPrefs | undefined;

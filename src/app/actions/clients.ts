@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { parseClientNotes, type NoteType, type ClientNote } from "./clients-constants";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 const clientSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -34,17 +35,14 @@ export async function createClient(
   }
 
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) {
-      return { success: false, error: "No salon found" };
-    }
+    const salonId = await getCurrentSalonId();
 
     const { name, phone, email, birthday, notes } = parsed.data;
 
     const client = await prisma.client.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         name,
         phone: phone || null,
         email: email || null,
@@ -171,8 +169,10 @@ export type ImportClientInput = {
 export async function importClients(
   clients: ImportClientInput[]
 ): Promise<{ imported: number; skipped: number; errors: string[] }> {
-  const salon = await prisma.salon.findFirst();
-  if (!salon) {
+  let salonId: string;
+  try {
+    salonId = await getCurrentSalonId();
+  } catch {
     return { imported: 0, skipped: 0, errors: ["No salon found"] };
   }
 
@@ -191,7 +191,7 @@ export async function importClients(
     // Skip if phone already exists
     if (raw.phone?.trim()) {
       const existing = await prisma.client.findFirst({
-        where: { salonId: salon.id, phone: raw.phone.trim() },
+        where: { salonId, phone: raw.phone.trim() },
         select: { id: true },
       });
       if (existing) {
@@ -204,7 +204,7 @@ export async function importClients(
       await prisma.client.create({
         data: {
           id: randomUUID(),
-          salonId: salon.id,
+          salonId,
           name,
           phone: raw.phone?.trim() || null,
           email: raw.email?.trim() || null,
@@ -551,11 +551,10 @@ export async function getClientByPhone(
   if (!trimmed) return { success: false, error: "Phone number is required" };
 
   try {
-    const salon = await prisma.salon.findFirst({ select: { id: true } });
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const client = await prisma.client.findFirst({
-      where: { salonId: salon.id, phone: trimmed },
+      where: { salonId, phone: trimmed },
       select: {
         id: true,
         name: true,
@@ -644,12 +643,13 @@ export async function sendBirthdayWish(
     });
     if (!client) return { success: false, error: "Client not found" };
 
-    const salon = await prisma.salon.findFirst({
-      select: { id: true, slug: true },
+    const salonId = await getCurrentSalonId();
+    const salonData = await prisma.salon.findUniqueOrThrow({
+      where: { id: salonId },
+      select: { slug: true },
     });
-    if (!salon) return { success: false, error: "No salon found" };
 
-    const bookingLink = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/book/${salon.slug}`;
+    const bookingLink = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/book/${salonData.slug}`;
     const message = `Happy Birthday ${client.name}! 🎂 As a gift, enjoy 15% off your next appointment. Book now: ${bookingLink}`;
 
     const scheduledAt = new Date();
@@ -658,7 +658,7 @@ export async function sendBirthdayWish(
     await prisma.reminder.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         clientId: client.id,
         type: "WHATSAPP",
         status: "PENDING",
@@ -677,16 +677,17 @@ export async function sendBirthdayWish(
 
 export async function sendAllBirthdayWishes(): Promise<{ sent: number }> {
   try {
-    const salon = await prisma.salon.findFirst({
-      select: { id: true, slug: true },
+    const salonId = await getCurrentSalonId();
+    const salonData = await prisma.salon.findUniqueOrThrow({
+      where: { id: salonId },
+      select: { slug: true },
     });
-    if (!salon) return { sent: 0 };
 
-    const bookingLink = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/book/${salon.slug}`;
+    const bookingLink = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/book/${salonData.slug}`;
 
     // Clients with a birthday set
     const allBirthdayClients = await prisma.client.findMany({
-      where: { birthday: { not: null }, salonId: salon.id },
+      where: { birthday: { not: null }, salonId },
       select: { id: true, name: true, birthday: true },
     });
 
@@ -706,7 +707,7 @@ export async function sendAllBirthdayWishes(): Promise<{ sent: number }> {
 
     const alreadySent = await prisma.reminder.findMany({
       where: {
-        salonId: salon.id,
+        salonId,
         type: "WHATSAPP",
         message: { contains: "Happy Birthday" },
         scheduledAt: { gte: todayStart, lte: todayEnd },
@@ -727,7 +728,7 @@ export async function sendAllBirthdayWishes(): Promise<{ sent: number }> {
       await prisma.reminder.create({
         data: {
           id: randomUUID(),
-          salonId: salon.id,
+          salonId,
           clientId: client.id,
           type: "WHATSAPP",
           status: "PENDING",
@@ -758,12 +759,11 @@ export async function getUpcomingAnniversaries(
   daysAhead: number
 ): Promise<AnniversaryClient[]> {
   try {
-    const salon = await prisma.salon.findFirst({ select: { id: true } });
-    if (!salon) return [];
+    const salonId = await getCurrentSalonId();
 
     // Get all clients for this salon
     const clients = await prisma.client.findMany({
-      where: { salonId: salon.id },
+      where: { salonId },
       select: {
         id: true,
         name: true,
@@ -834,11 +834,10 @@ export async function getUpcomingAnniversaries(
 
 export async function getAllClientTags(): Promise<string[]> {
   try {
-    const salon = await prisma.salon.findFirst({ select: { id: true } });
-    if (!salon) return [];
+    const salonId = await getCurrentSalonId();
 
     const clients = await prisma.client.findMany({
-      where: { salonId: salon.id },
+      where: { salonId },
       select: { tags: true },
     });
 
@@ -920,14 +919,13 @@ export type RetentionClient = {
 
 export async function getAtRiskClients(): Promise<RetentionClient[]> {
   try {
-    const salon = await prisma.salon.findFirst({ select: { id: true } });
-    if (!salon) return [];
+    const salonId = await getCurrentSalonId();
 
     const now = new Date();
     const todayStr = now.toISOString().slice(0, 10);
 
     const clients = await prisma.client.findMany({
-      where: { salonId: salon.id },
+      where: { salonId },
       select: {
         id: true,
         name: true,
@@ -944,7 +942,7 @@ export async function getAtRiskClients(): Promise<RetentionClient[]> {
     // Find upcoming scheduled appointments per client
     const scheduledAppts = await prisma.appointment.findMany({
       where: {
-        salonId: salon.id,
+        salonId,
         status: "SCHEDULED",
         date: { gte: todayStr },
       },
@@ -989,14 +987,13 @@ export async function getAtRiskClients(): Promise<RetentionClient[]> {
 
 export async function getLostClients(): Promise<RetentionClient[]> {
   try {
-    const salon = await prisma.salon.findFirst({ select: { id: true } });
-    if (!salon) return [];
+    const salonId = await getCurrentSalonId();
 
     const now = new Date();
     const todayStr = now.toISOString().slice(0, 10);
 
     const clients = await prisma.client.findMany({
-      where: { salonId: salon.id },
+      where: { salonId },
       select: {
         id: true,
         name: true,
@@ -1012,7 +1009,7 @@ export async function getLostClients(): Promise<RetentionClient[]> {
 
     const scheduledAppts = await prisma.appointment.findMany({
       where: {
-        salonId: salon.id,
+        salonId,
         status: "SCHEDULED",
         date: { gte: todayStr },
       },
@@ -1062,10 +1059,11 @@ export async function sendWinBackMessage(
   if (!clientId) return { success: false, error: "Missing client id" };
 
   try {
-    const salon = await prisma.salon.findFirst({
-      select: { id: true, name: true, slug: true },
+    const salonId = await getCurrentSalonId();
+    const salonData = await prisma.salon.findUniqueOrThrow({
+      where: { id: salonId },
+      select: { name: true, slug: true },
     });
-    if (!salon) return { success: false, error: "No salon found" };
 
     const client = await prisma.client.findUnique({
       where: { id: clientId },
@@ -1082,7 +1080,7 @@ export async function sendWinBackMessage(
     });
     if (!client) return { success: false, error: "Client not found" };
 
-    const bookingLink = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/book/${salon.slug}`;
+    const bookingLink = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/book/${salonData.slug}`;
     const lastDate = client.Appointment[0]?.date ?? "";
     const daysSince = lastDate
       ? Math.floor(
@@ -1093,7 +1091,7 @@ export async function sendWinBackMessage(
 
     const winBackMsg =
       message ??
-      `Hi ${client.name}! We miss you at ${salon.name}. It's been ${daysSince ?? "a while"} days since your last visit. Book now: ${bookingLink}`;
+      `Hi ${client.name}! We miss you at ${salonData.name}. It's been ${daysSince ?? "a while"} days since your last visit. Book now: ${bookingLink}`;
 
     const scheduledAt = new Date();
     scheduledAt.setHours(10, 0, 0, 0);
@@ -1104,7 +1102,7 @@ export async function sendWinBackMessage(
     await prisma.reminder.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         clientId: client.id,
         type: "WHATSAPP",
         status: "PENDING",
@@ -1133,17 +1131,14 @@ export async function sendBirthdayMessage(
     });
     if (!client) return { success: false, error: "Client not found" };
 
-    const salon = await prisma.salon.findFirst({
-      select: { id: true },
-    });
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const message = `Happy Birthday ${client.name}! 🎂 Wishing you a wonderful day. As a birthday gift, enjoy a special discount on your next visit. We look forward to seeing you soon!`;
 
     await prisma.reminder.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         clientId: client.id,
         type: "WHATSAPP",
         status: "PENDING",

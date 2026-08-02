@@ -2,6 +2,7 @@
 
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { getCurrentSalonId } from "@/lib/repositories/base";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -214,8 +215,7 @@ export async function markPeriodPaid(
   { success: true; id: string } | { success: false; error: string }
 > {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const staff = await prisma.staff.findUnique({ where: { id: staffId } });
     if (!staff) return { success: false, error: "Staff not found" };
@@ -238,7 +238,7 @@ export async function markPeriodPaid(
     const record = await prisma.payrollRecord.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         staffId,
         periodStart: new Date(from),
         periodEnd: new Date(to),
@@ -337,8 +337,7 @@ export async function createPayrollPayment(data: {
   notes?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const staff = await prisma.staff.findUnique({ where: { id: data.staffId } });
     if (!staff) return { success: false, error: "Staff not found" };
@@ -346,7 +345,7 @@ export async function createPayrollPayment(data: {
     await prisma.payrollRecord.create({
       data: {
         id: randomUUID(),
-        salonId: salon.id,
+        salonId,
         staffId: data.staffId,
         periodStart: new Date(data.periodStart),
         periodEnd: new Date(data.periodEnd),
@@ -552,8 +551,7 @@ export async function markStaffPaid(data: {
   notes?: string;
 }): Promise<{ success: boolean; id?: string; error?: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const staff = await prisma.staff.findUnique({ where: { id: data.staffId } });
     if (!staff) return { success: false, error: "Staff not found" };
@@ -583,7 +581,7 @@ export async function markStaffPaid(data: {
       record = await prisma.payrollRecord.create({
         data: {
           id: randomUUID(),
-          salonId: salon.id,
+          salonId,
           staffId: data.staffId,
           periodStart: data.periodStart,
           periodEnd: data.periodEnd,
@@ -652,8 +650,7 @@ export async function bulkMarkPaid(
   period: { start: Date; end: Date }
 ): Promise<{ success: boolean; count: number; error?: string }> {
   try {
-    const salon = await prisma.salon.findFirst();
-    if (!salon) return { success: false, count: 0, error: "No salon found" };
+    const salonId = await getCurrentSalonId();
 
     const from = period.start.toISOString().split("T")[0];
     const to = period.end.toISOString().split("T")[0];
@@ -693,7 +690,7 @@ export async function bulkMarkPaid(
         await prisma.payrollRecord.create({
           data: {
             id: randomUUID(),
-            salonId: salon.id,
+            salonId,
             staffId,
             periodStart: period.start,
             periodEnd: period.end,
