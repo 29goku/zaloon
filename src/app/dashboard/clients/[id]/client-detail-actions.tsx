@@ -956,7 +956,7 @@ function SendReminderButton({ appointmentId }: SendReminderButtonProps) {
 
   function handleSend() {
     startTransition(async () => {
-      const res = await scheduleReminder(appointmentId, "SMS", 24);
+      const res = await scheduleReminder(appointmentId, "WHATSAPP", 24);
       if (res.success) {
         setDone(true);
         router.refresh();

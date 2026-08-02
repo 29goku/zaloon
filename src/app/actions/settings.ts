@@ -607,9 +607,9 @@ export interface ReminderSettings {
 }
 
 const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
-  smsEnabled: true,
+  smsEnabled: false,
   emailEnabled: false,
-  whatsappEnabled: false,
+  whatsappEnabled: true,
   hoursBefore: [24, 2],
   dayBeforeAt5pm: false,
   smsTemplate:

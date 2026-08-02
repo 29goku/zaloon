@@ -420,7 +420,7 @@ export async function scheduleRemindersForDate(
               salonId,
               appointmentId: appt.id,
               clientId: appt.clientId,
-              type: "SMS",
+              type: "WHATSAPP",
               status: "PENDING",
               message,
               scheduledAt,
@@ -478,7 +478,7 @@ export async function scheduleRebookingReminder(
         salonId: appointment.Salon.id,
         appointmentId,
         clientId: appointment.clientId ?? null,
-        type: "SMS",
+        type: "WHATSAPP",
         status: "PENDING",
         message,
         scheduledAt,
@@ -497,13 +497,13 @@ export async function scheduleRebookingReminder(
 
 export async function sendQuickMessage(data: {
   clientId: string;
-  channel: "SMS" | "EMAIL";
+  channel: "WHATSAPP" | "EMAIL";
   message: string;
   scheduledAt?: string; // ISO string; if undefined → now
 }): Promise<{ success: boolean; reminderId?: string; error?: string }> {
   if (!data.clientId) return { success: false, error: "clientId is required" };
   if (!data.message?.trim()) return { success: false, error: "Message is required" };
-  if (!["SMS", "EMAIL"].includes(data.channel)) {
+  if (!["WHATSAPP", "EMAIL"].includes(data.channel)) {
     return { success: false, error: "Invalid channel" };
   }
 

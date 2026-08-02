@@ -442,8 +442,8 @@ export function NewAppointmentModal({
       toast.add({
         title: "Reminders scheduled",
         description: count === 1
-          ? "1 SMS reminder scheduled for this appointment."
-          : `${count} SMS reminders scheduled (24h and 2h before appointment).`,
+          ? "1 WhatsApp reminder scheduled for this appointment."
+          : `${count} WhatsApp reminders scheduled (24h and 2h before appointment).`,
         type: "info",
       });
     }

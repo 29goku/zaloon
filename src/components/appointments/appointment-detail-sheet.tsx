@@ -221,7 +221,7 @@ export function AppointmentDetailSheet({
     formState: { errors: reminderErrors },
   } = useForm<ReminderFormValues>({
     resolver: zodResolver(reminderSchema),
-    defaultValues: { type: "SMS", hours: "24" },
+    defaultValues: { type: "WHATSAPP", hours: "24" },
   });
 
   // Reset form + mode when appointment changes or sheet closes
@@ -344,7 +344,7 @@ export function AppointmentDetailSheet({
       return;
     }
     setReminderSuccess(true);
-    resetReminder({ type: "SMS", hours: "24" });
+    resetReminder({ type: "WHATSAPP", hours: "24" });
     router.refresh();
   }
 

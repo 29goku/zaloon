@@ -157,7 +157,7 @@ function WinBackTemplateCard() {
           </p>
         </div>
         <p className="text-xs text-muted-foreground mt-2">
-          Sent via SMS. Client name and days since last visit are personalized
+          Sent via WhatsApp. Client name and days since last visit are personalized
           automatically.
         </p>
       </CardContent>

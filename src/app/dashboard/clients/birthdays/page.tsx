@@ -125,7 +125,7 @@ export default async function BirthdaysPage() {
     ? await prisma.reminder.count({
         where: {
           salonId: salon.id,
-          type: "SMS",
+          type: "WHATSAPP",
           message: { contains: "Happy Birthday" },
           scheduledAt: { gte: todayStart, lte: todayEnd },
         },

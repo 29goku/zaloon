@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { ConfirmationTemplates, ConfirmationTemplate } from "@/app/actions/settings";
 import { saveConfirmationTemplates } from "@/app/actions/settings";
 
-const SMS_MAX = 160;
+const SMS_MAX = 4096;
 
 const EVENT_LABELS: Array<{ key: keyof ConfirmationTemplates; label: string; description: string; hasEmail: boolean }> = [
   {
@@ -106,11 +106,11 @@ export function ConfirmationTemplatesClient({ initialTemplates }: Props) {
           <p className="text-xs text-muted-foreground mt-0.5">{currentEvent.description}</p>
         </div>
 
-        {/* SMS body */}
+        {/* WhatsApp body */}
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              SMS Body
+              WhatsApp Body
             </label>
             <span
               className={[
@@ -119,19 +119,19 @@ export function ConfirmationTemplatesClient({ initialTemplates }: Props) {
               ].join(" ")}
             >
               {smsLen} / {SMS_MAX}
-              {smsLen > SMS_MAX && " — exceeds 1 SMS, may be split"}
+              {smsLen > SMS_MAX && " — exceeds WhatsApp limit"}
             </span>
           </div>
           <textarea
             rows={4}
             value={tpl.smsBody ?? ""}
             onChange={(e) => update(activeTab, { smsBody: e.target.value })}
-            placeholder="SMS message body…"
+            placeholder="WhatsApp message body…"
             className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y font-mono"
           />
           {smsLen > SMS_MAX && (
             <p className="text-xs text-destructive mt-1">
-              Message exceeds 160 characters — it will be sent as {Math.ceil(smsLen / 153)} SMS segments.
+              Message exceeds WhatsApp 4096 character limit.
             </p>
           )}
         </div>

@@ -372,11 +372,11 @@ function WizardForm({ onSuccess }: WizardFormProps) {
     onSuccess();
   }
 
-  const smsWarning = channel === "SMS" && (message?.length ?? 0) > 160;
+  const smsWarning = channel === "WHATSAPP" && (message?.length ?? 0) > 4096;
   const charColor =
-    (message?.length ?? 0) > 1600
+    (message?.length ?? 0) > 4096 && channel === "WHATSAPP"
       ? "text-destructive"
-      : (message?.length ?? 0) > 160 && channel === "SMS"
+      : (message?.length ?? 0) > 4096 && channel === "WHATSAPP"
       ? "text-amber-600 dark:text-amber-400"
       : "text-muted-foreground";
 
@@ -686,13 +686,13 @@ function WizardForm({ onSuccess }: WizardFormProps) {
                 <p className="text-xs text-destructive">{errors.message.message}</p>
               ) : smsWarning ? (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
-                  SMS may be split into multiple parts (160 chars each)
+                  Message exceeds WhatsApp 4096 character limit
                 </p>
               ) : (
                 <span />
               )}
               <p className={`text-xs tabular-nums ${charColor}`}>
-                {message?.length ?? 0} / {channel === "SMS" ? "160" : "1600"}
+                {message?.length ?? 0} / {channel === "WHATSAPP" ? "4096" : "1600"}
               </p>
             </div>
           </div>

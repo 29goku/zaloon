@@ -296,8 +296,8 @@ export function ReminderConfigForm({ initialSettings }: ReminderConfigFormProps)
           <Toggle
             checked={settings.smsEnabled}
             onChange={(v) => setSettings((prev) => ({ ...prev, smsEnabled: v }))}
-            label="SMS"
-            note="Requires SMS provider configuration"
+            label="WhatsApp"
+            note="Via WhatsApp Business API"
           />
           <Toggle
             checked={settings.emailEnabled}
@@ -324,11 +324,11 @@ export function ReminderConfigForm({ initialSettings }: ReminderConfigFormProps)
       {/* 3. Message Templates */}
       <SectionCard title="Message Templates" icon={Mail}>
         <div className="space-y-6">
-          {/* SMS */}
+          {/* WhatsApp */}
           <div className="space-y-2">
             <label className="text-sm font-medium flex items-center gap-2">
               <MessageSquare className="size-4 text-muted-foreground" />
-              SMS Reminder Template
+              WhatsApp Reminder Template
             </label>
             <textarea
               value={settings.smsTemplate}

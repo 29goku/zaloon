@@ -409,7 +409,7 @@ export async function markNoShow(
       include: { Client: { select: { id: true } } },
     });
 
-    // Create a follow-up SMS reminder for no-show clients
+    // Create a follow-up WhatsApp reminder for no-show clients
     try {
       const salon = await prisma.salon.findFirst({ select: { id: true } });
       if (salon) {

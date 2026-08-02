@@ -121,7 +121,7 @@ export function QuickClientCampaignDialog({
             <Label htmlFor="quick-msg">Message</Label>
             <Textarea
               id="quick-msg"
-              placeholder={`Hi! We have a special offer just for you. Visit us soon at ${channel === "SMS" ? "our salon" : "Zaloon"}!`}
+              placeholder={`Hi! We have a special offer just for you. Visit us soon at ${channel === "EMAIL" ? "Zaloon" : "our salon"}!`}
               className="resize-none min-h-[120px]"
               value={message}
               onChange={(e) => setMessage(e.target.value)}

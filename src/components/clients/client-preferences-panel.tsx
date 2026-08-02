@@ -299,7 +299,7 @@ export function ClientPreferencesPanel({
           <ToggleSwitch
             checked={notif.sms}
             onChange={(v) => setNotif("sms", v)}
-            label="SMS reminders"
+            label="WhatsApp reminders"
           />
           <ToggleSwitch
             checked={notif.email}

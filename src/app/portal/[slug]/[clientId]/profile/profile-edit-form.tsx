@@ -171,9 +171,9 @@ export function ProfileEditForm({
 
         <label className="flex items-center justify-between cursor-pointer">
           <div>
-            <p className="text-sm font-medium text-stone-800">SMS reminders</p>
+            <p className="text-sm font-medium text-stone-800">WhatsApp reminders</p>
             <p className="text-xs text-stone-400">
-              Appointment reminders via text
+              Appointment reminders via WhatsApp
             </p>
           </div>
           <button

@@ -97,7 +97,7 @@ function TemplateEditor({ template, onClose, onSaved }: EditorProps) {
     template?.category ?? "custom"
   );
   const [channel, setChannel] = React.useState<MessageTemplate["channel"]>(
-    template?.channel ?? "SMS"
+    template?.channel ?? "WhatsApp"
   );
   const [subject, setSubject] = React.useState(template?.subject ?? "");
   const [body, setBody] = React.useState(template?.body ?? "");
